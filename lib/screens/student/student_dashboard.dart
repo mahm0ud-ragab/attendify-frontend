@@ -1,10 +1,9 @@
 // Student Dashboard Screen
-
 import 'package:flutter/material.dart';
-import '../services/api_service.dart';
-import '../services/storage_service.dart';
-import 'login_screen.dart';
-import 'course_detail_screen.dart';
+import '../../services/api_service.dart';
+import '../../services/storage_service.dart';
+import '../auth/login_screen.dart';
+import 'beacon_scanner_screen.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -16,7 +15,6 @@ class StudentDashboard extends StatefulWidget {
 class _StudentDashboardState extends State<StudentDashboard> {
   final _apiService = ApiService();
   final _storageService = StorageService();
-
   String _userName = '';
   List<dynamic> _courses = [];
   bool _isLoading = true;
@@ -30,7 +28,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
   Future<void> _loadData() async {
     // Load user name
     final name = await _storageService.getUserName();
-
     // Load enrolled courses
     final result = await _apiService.getEnrolledCourses();
 
@@ -65,7 +62,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
     if (shouldLogout == true) {
       await _apiService.logout();
-
       if (!mounted) return;
 
       // Navigate to login screen
@@ -244,12 +240,10 @@ class _StudentDashboardState extends State<StudentDashboard> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) =>
-                                CourseDetailScreen(
-                                  courseId: course['id'],
-                                  courseTitle: course['title'],
-                                  isLecturer: false,
-                                ),
+                            builder: (context) => BeaconScannerScreen(
+                              courseId: course['id'],
+                              courseTitle: course['title'] ?? 'Unknown Course',
+                            ),
                           ),
                         );
                       },

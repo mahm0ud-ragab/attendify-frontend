@@ -1,11 +1,11 @@
 // Registration Screen
 
 import 'package:flutter/material.dart';
-import '../services/api_service.dart';
-import '../widgets/custom_button.dart';
-import '../widgets/custom_text_field.dart';
-import 'student_dashboard.dart';
-import 'lecturer_dashboard.dart';
+import '../../services/api_service.dart';
+import '../../widgets/custom_button.dart';
+import '../../widgets/custom_text_field.dart';
+import '../student/student_dashboard.dart';
+import '../doctor/lecturer_dashboard.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
