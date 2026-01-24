@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import '../services/ble_service.dart';
 
 class CourseDetailScreen extends StatefulWidget {
   final int courseId;
@@ -21,13 +22,163 @@ class CourseDetailScreen extends StatefulWidget {
 
 class _CourseDetailScreenState extends State<CourseDetailScreen> {
   final _apiService = ApiService();
+  final _bleService = BLEService();
   Map<String, dynamic>? _courseData;
   bool _isLoading = true;
+  bool _isBroadcasting = false;
+  Map<String, dynamic>? _beaconData;
+  int? _sessionId;
 
   @override
   void initState() {
     super.initState();
     _loadCourseDetails();
+  }
+
+  @override
+  void dispose() {
+    if (_isBroadcasting) {
+      _bleService.stopBroadcasting();
+    }
+    super.dispose();
+  }
+
+  Future<void> _startBroadcasting() async {
+    if (_beaconData == null) return;
+
+    try {
+      await _bleService.startBroadcasting(
+        major: _beaconData!['major'],
+        minor: _beaconData!['minor'],
+      );
+      print('Started broadcasting: ${_beaconData}');
+    } catch (e) {
+      print('Broadcasting error: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to start broadcasting: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _stopBroadcasting() async {
+    if (_sessionId == null) return; // Safety check
+
+    // Call API to end session
+    final result = await _apiService.endAttendanceSession(sessionId: _sessionId!);
+
+    if (!mounted) return;
+
+    if (result['success']) {
+      // Stop broadcasting locally
+      await _bleService.stopBroadcasting();
+      setState(() {
+        _isBroadcasting = false;
+        _beaconData = null;
+        _sessionId = null;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message']),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    } else {
+      // Show error if ending session failed
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message']),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+
+  Future<void> _generateBeacon() async {
+    print('Generate beacon tapped');
+
+    // Check permissions
+    final hasPermission = await _bleService.checkPermissions();
+    if (!hasPermission) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bluetooth and Location permissions are required'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Check if Bluetooth is enabled
+    final isBluetoothOn = await _bleService.isBluetoothEnabled();
+    if (!isBluetoothOn) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enable Bluetooth'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    // Show loading
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+
+    print('Creating attendance session for course ${widget.courseId}');
+
+    // Create session on backend
+    final result = await _apiService.createAttendanceSession(
+      courseId: widget.courseId,
+    );
+
+    print('Backend response: $result');
+
+    if (!mounted) return;
+    Navigator.pop(context); // Close loading
+
+    if (result['success']) {
+      setState(() {
+        _sessionId = result['session_id'];
+        _beaconData = result['beacon_data'];
+        _isBroadcasting = true;
+      });
+
+      print('Session created successfully: $_beaconData');
+
+      // Start broadcasting
+      await _startBroadcasting();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Attendance session started successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } else {
+      print('Failed to create session: ${result['message']}');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message']),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _loadCourseDetails() async {
@@ -43,16 +194,6 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
       }
       _isLoading = false;
     });
-  }
-
-  Future<void> _generateBeacon() async {
-    // TODO: Implement BLE beacon generation in future milestone
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Beacon generation coming in next milestone!'),
-        backgroundColor: Colors.blue,
-      ),
-    );
   }
 
   @override
@@ -157,30 +298,106 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Lecturer View: Generate Beacon Button
+              // Lecturer View: Generate/Stop Beacon Button
               if (widget.isLecturer) ...[
-                SizedBox(
-                  width: double.infinity,
-                  height: 55,
-                  child: ElevatedButton.icon(
-                    onPressed: _generateBeacon,
-                    icon: const Icon(Icons.qr_code_2, size: 28),
-                    label: const Text(
-                      'Generate Attendance Beacon',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
+                if (_isBroadcasting) ...[
+                  // Active session card
+                  Card(
+                    color: Colors.green.shade50,
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.deepPurple,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 12,
+                                height: 12,
+                                decoration: const BoxDecoration(
+                                  color: Colors.green,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Text(
+                                  'Broadcasting Attendance Beacon',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          if (_beaconData != null) ...[
+                            Text(
+                              'Major: ${_beaconData!['major']} | Minor: ${_beaconData!['minor']}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              'UUID: ${_beaconData!['uuid']}',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            const SizedBox(height: 15),
+                          ],
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: _stopBroadcasting,
+                              icon: const Icon(Icons.stop),
+                              label: const Text('End Session'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                ),
+                ] else ...[
+                  // Generate beacon button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 55,
+                    child: ElevatedButton.icon(
+                      onPressed: _generateBeacon,
+                      icon: const Icon(Icons.bluetooth, size: 28),
+                      label: const Text(
+                        'Generate Attendance Beacon',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurple,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 20),
               ],
 

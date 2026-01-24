@@ -13,7 +13,7 @@ class ApiService {
   // For Windows Desktop or Chrome: 'http://localhost:5000'
 
   // TODO: Replace with your computer's IP address
-  static const String baseUrl = 'http://192.168.1.8:5000';
+  static const String baseUrl = 'http://192.168.1.9:5000';
 
   final StorageService _storage = StorageService();
 
@@ -278,6 +278,189 @@ class ApiService {
         return {
           'success': false,
           'message': data['message'] ?? 'Failed to fetch course details',
+        };
+      }
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Network error: ${e.toString()}',
+      };
+    }
+  }
+
+  // Create attendance session (for lecturers) - Updated to match backend
+  Future<Map<String, dynamic>> createAttendanceSession({
+    required int courseId,
+  }) async {
+    try {
+      final token = await _storage.getToken();
+      final userId = await _storage.getUserId();
+
+      if (token == null || userId == null) {
+        return {
+          'success': false,
+          'message': 'Not authenticated',
+        };
+      }
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/sessions/start'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'course_id': courseId,
+          'user_id': userId,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 201) {
+        return {
+          'success': true,
+          'session_id': data['session_id'],
+          'beacon_data': data['beacon_data'],
+          'message': data['message'],
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['error'] ?? 'Failed to create session',
+        };
+      }
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Network error: ${e.toString()}',
+      };
+    }
+  }
+
+  // Mark attendance (for students)
+  Future<Map<String, dynamic>> markAttendance({
+    required String sessionCode,
+  }) async {
+    try {
+      final token = await _storage.getToken();
+
+      if (token == null) {
+        return {
+          'success': false,
+          'message': 'Not authenticated',
+        };
+      }
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/attendance/mark'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'session_code': sessionCode,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {
+          'success': true,
+          'message': data['message'] ?? 'Attendance marked',
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['message'] ?? 'Failed to mark attendance',
+        };
+      }
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Network error: ${e.toString()}',
+      };
+    }
+  }
+
+  // Get active session for a course (for lecturers)
+  Future<Map<String, dynamic>> getActiveSession(int courseId) async {
+    try {
+      final token = await _storage.getToken();
+
+      if (token == null) {
+        return {
+          'success': false,
+          'message': 'Not authenticated',
+        };
+      }
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/auth/attendance/active/$courseId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'session': data,
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['message'] ?? 'No active session',
+        };
+      }
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Network error: ${e.toString()}',
+      };
+    }
+  }
+
+
+  Future<Map<String, dynamic>> endAttendanceSession({
+    required int sessionId,
+  }) async {
+    try {
+      final token = await _storage.getToken();
+
+      if (token == null) {
+        return {
+          'success': false,
+          'message': 'Not authenticated',
+        };
+      }
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/sessions/end'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'session_id': sessionId,
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'message': data['message'] ?? 'Session ended successfully',
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['error'] ?? 'Failed to end session',
         };
       }
     } catch (e) {
