@@ -1,8 +1,8 @@
 // Course Detail Screen
 
 import 'package:flutter/material.dart';
-import '../services/api_service.dart';
-import '../services/ble_service.dart';
+import '../../services/api_service.dart';
+import '../../services/ble_service.dart';
 
 class CourseDetailScreen extends StatefulWidget {
   final int courseId;
@@ -97,7 +97,6 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
       );
     }
   }
-
 
   Future<void> _generateBeacon() async {
     print('Generate beacon tapped');
@@ -374,13 +373,17 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                     ),
                   ),
                 ] else ...[
-                  // Generate beacon button
+                  // ✅ Generate beacon button with WHITE Bluetooth icon
                   SizedBox(
                     width: double.infinity,
                     height: 55,
                     child: ElevatedButton.icon(
                       onPressed: _generateBeacon,
-                      icon: const Icon(Icons.bluetooth, size: 28),
+                      icon: const Icon(
+                        Icons.bluetooth,
+                        size: 28,
+                        color: Colors.white, // ✅ WHITE COLOR
+                      ),
                       label: const Text(
                         'Generate Attendance Beacon',
                         style: TextStyle(
@@ -463,8 +466,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                 ListView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemCount:
-                  _courseData!['enrolled_students'].length,
+                  itemCount: _courseData!['enrolled_students'].length,
                   itemBuilder: (context, index) {
                     final student =
                     _courseData!['enrolled_students'][index];

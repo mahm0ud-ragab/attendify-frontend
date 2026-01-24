@@ -1,12 +1,25 @@
 // Main Entry Point of the App
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'services/storage_service.dart';
-import 'screens/login_screen.dart';
-import 'screens/student_dashboard.dart';
-import 'screens/lecturer_dashboard.dart';
+import 'screens/auth/login_screen.dart';
+import 'screens/student/student_dashboard.dart';
+import 'screens/doctor/lecturer_dashboard.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Customize status bar
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+      systemNavigationBarColor: Colors.white,
+      systemNavigationBarIconBrightness: Brightness.dark,
+    ),
+  );
+
   runApp(const MyApp());
 }
 
@@ -49,10 +62,10 @@ class _SplashScreenState extends State<SplashScreen> {
     // Wait a bit to show splash screen
     await Future.delayed(const Duration(seconds: 2));
 
+    if (!mounted) return;
+
     // Check if user is logged in
     final isLoggedIn = await _storageService.isLoggedIn();
-
-    if (!mounted) return;
 
     if (isLoggedIn) {
       // Get user role
@@ -66,7 +79,7 @@ class _SplashScreenState extends State<SplashScreen> {
             builder: (context) => const StudentDashboard(),
           ),
         );
-      } else if (role == 'lecturer') {
+      } else if (role == 'lecturer' || role == 'doctor') {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(

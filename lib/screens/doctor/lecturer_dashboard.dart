@@ -1,10 +1,10 @@
 // Lecturer Dashboard Screen
 
 import 'package:flutter/material.dart';
-import '../services/api_service.dart';
-import '../services/storage_service.dart';
-import 'login_screen.dart';
-import 'course_detail_screen.dart';
+import '../../services/api_service.dart';
+import '../../services/storage_service.dart';
+import '../auth/login_screen.dart';
+import '../student/course_detail_screen.dart';
 
 class LecturerDashboard extends StatefulWidget {
   const LecturerDashboard({super.key});
