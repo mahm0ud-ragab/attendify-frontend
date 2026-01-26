@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../models/beacon.dart';
 import '../../services/bluetooth_service.dart';
 import '../../services/permission_service.dart';
+import '../../services/api_service.dart';
 import '../../widgets/beacon_card.dart';
 import '../../widgets/control_panel.dart';
 
@@ -23,12 +24,15 @@ class BeaconScannerScreen extends StatefulWidget {
 class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
   final _bluetoothService = BluetoothService();
   final _permissionService = PermissionService();
+  final _apiService = ApiService();
 
   int get courseId => widget.courseId;
   String get courseTitle => widget.courseTitle;
 
   List<Beacon> _beacons = [];
   bool _isScanning = false;
+  bool _isMarkingAttendance = false;
+  bool _hasActiveSession = false;
   String _statusMessage = 'Ready to scan';
   String? _errorMessage;
 
@@ -36,6 +40,7 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
   void initState() {
     super.initState();
     _checkBluetoothState();
+    _checkActiveSession();
     _listenToScanResults();
     _listenToScanningState();
   }
@@ -46,6 +51,18 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
       setState(() {
         _statusMessage = 'Please enable Bluetooth';
         _errorMessage = 'Bluetooth is turned off';
+      });
+    }
+  }
+
+  Future<void> _checkActiveSession() async {
+    final result = await _apiService.getActiveSessionForCourse(courseId);
+    if (mounted) {
+      setState(() {
+        _hasActiveSession = result['has_active_session'] ?? false;
+        if (!_hasActiveSession) {
+          _statusMessage = 'No active session. Contact your lecturer.';
+        }
       });
     }
   }
@@ -65,7 +82,7 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
       if (mounted) {
         setState(() {
           _isScanning = isScanning;
-          if (!isScanning) {
+          if (!isScanning && _hasActiveSession) {
             _statusMessage = _beacons.isEmpty
                 ? 'No beacons found'
                 : 'Found ${_beacons.length} beacon${_beacons.length > 1 ? 's' : ''}';
@@ -79,6 +96,12 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
     HapticFeedback.lightImpact();
     print('🚀 Start Scan button pressed');
 
+    // Check if there's an active session first
+    if (!_hasActiveSession) {
+      _showNoSessionDialog();
+      return;
+    }
+
     final hasPermissions = await _permissionService.requestBluetoothPermissions();
     if (!hasPermissions) {
       print('❌ Permissions not granted');
@@ -86,7 +109,6 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
       return;
     }
 
-    // Check if location services are enabled
     final locationEnabled = await _permissionService.isLocationServiceEnabled();
     if (!locationEnabled) {
       _showLocationServiceDialog();
@@ -117,6 +139,265 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
     setState(() {
       _statusMessage = 'Scan stopped';
     });
+  }
+
+  Future<void> _markAttendance(Beacon beacon) async {
+    if (_isMarkingAttendance) return;
+
+    // Show confirmation dialog
+    final confirmed = await _showConfirmationDialog(beacon);
+    if (!confirmed) return;
+
+    setState(() {
+      _isMarkingAttendance = true;
+    });
+
+    HapticFeedback.mediumImpact();
+
+    final result = await _apiService.markAttendanceWithBeacon(
+      selectedCourseId: courseId,
+      beaconMajor: beacon.major,
+      beaconMinor: beacon.minor,
+    );
+
+    setState(() {
+      _isMarkingAttendance = false;
+    });
+
+    if (result['success']) {
+      _showSuccessDialog(result['message'] ?? 'Attendance marked successfully!');
+      HapticFeedback.heavyImpact();
+      // Stop scanning after successful marking
+      await _bluetoothService.stopScan();
+    } else {
+      if (result['already_marked'] == true) {
+        _showAlreadyMarkedDialog(result['message']);
+      } else {
+        _showErrorDialog(result['message'] ?? 'Failed to mark attendance');
+      }
+      HapticFeedback.vibrate();
+    }
+  }
+
+  Future<bool> _showConfirmationDialog(Beacon beacon) async {
+    return await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          icon: Icon(
+            Icons.qr_code_scanner,
+            size: 48,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          title: const Text(
+            'Mark Attendance?',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Mark attendance for:',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey[100],
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      courseTitle,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Beacon: ${beacon.major}/${beacon.minor}',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 14,
+                      ),
+                    ),
+                    Text(
+                      'Signal: ${beacon.signalStrength}',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Confirm'),
+            ),
+          ],
+        );
+      },
+    ) ?? false;
+  }
+
+  void _showSuccessDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          icon: const Icon(
+            Icons.check_circle_rounded,
+            size: 64,
+            color: Colors.green,
+          ),
+          title: const Text(
+            'Success!',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          content: Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 16),
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.pop(context); // Go back to course list
+              },
+              child: const Text('Done'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final colorScheme = Theme.of(context).colorScheme;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          icon: Icon(
+            Icons.error_outline_rounded,
+            size: 48,
+            color: colorScheme.error,
+          ),
+          title: const Text(
+            'Error',
+            textAlign: TextAlign.center,
+          ),
+          content: Text(
+            message,
+            textAlign: TextAlign.center,
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showAlreadyMarkedDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          icon: const Icon(
+            Icons.info_outline_rounded,
+            size: 48,
+            color: Colors.blue,
+          ),
+          title: const Text(
+            'Already Marked',
+            textAlign: TextAlign.center,
+          ),
+          content: Text(
+            message,
+            textAlign: TextAlign.center,
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.pop(context); // Go back to course list
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showNoSessionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          icon: Icon(
+            Icons.event_busy_rounded,
+            size: 48,
+            color: Colors.orange,
+          ),
+          title: const Text(
+            'No Active Session',
+            textAlign: TextAlign.center,
+          ),
+          content: const Text(
+            'There is no active attendance session for this course. Please contact your lecturer.',
+            textAlign: TextAlign.center,
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _showPermissionDialog() {
@@ -196,24 +477,53 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Sort beacons by signal strength (strongest first)
     _beacons.sort((a, b) => b.rssi.compareTo(a.rssi));
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
         title: Text(courseTitle),
+        actions: [
+          if (!_hasActiveSession)
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.event_busy, size: 16, color: Colors.orange),
+                      SizedBox(width: 4),
+                      Text(
+                        'No Session',
+                        style: TextStyle(
+                          color: Colors.orange,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: () async {
-          if (!_isScanning) {
+          await _checkActiveSession();
+          if (!_isScanning && _hasActiveSession) {
             await _startScan();
           }
         },
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
-            // Control panel
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.all(20),
@@ -226,7 +536,6 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
               ),
             ),
 
-            // Error banner
             if (_errorMessage != null)
               SliverToBoxAdapter(
                 child: Padding(
@@ -235,7 +544,14 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
                 ),
               ),
 
-            // Header
+            if (!_hasActiveSession)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _buildWarningBanner(),
+                ),
+              ),
+
             SliverToBoxAdapter(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
@@ -272,7 +588,6 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
               ),
             ),
 
-            // Beacon list or empty state
             if (_beacons.isEmpty)
               SliverFillRemaining(
                 child: Center(
@@ -301,7 +616,9 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
                       Text(
                         _isScanning
                             ? 'Looking for beacons nearby'
-                            : 'Tap "Start Scan" to begin searching',
+                            : _hasActiveSession
+                            ? 'Tap "Start Scan" to begin searching'
+                            : 'No active session available',
                         style: TextStyle(
                           fontSize: 14,
                           color: Colors.grey[500],
@@ -329,10 +646,8 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
                 sliver: SliverList(
                   delegate: SliverChildBuilderDelegate(
                         (context, index) {
-                      return BeaconCard(
-                        beacon: _beacons[index],
-                        index: index + 1,
-                      );
+                      final beacon = _beacons[index];
+                      return _buildBeaconCardWithButton(beacon, index + 1);
                     },
                     childCount: _beacons.length,
                   ),
@@ -340,6 +655,50 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildBeaconCardWithButton(Beacon beacon, int index) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          BeaconCard(beacon: beacon, index: index),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _isMarkingAttendance || !_hasActiveSession
+                    ? null
+                    : () => _markAttendance(beacon),
+                icon: _isMarkingAttendance
+                    ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation(Colors.white),
+                  ),
+                )
+                    : const Icon(Icons.qr_code_scanner),
+                label: Text(
+                  _isMarkingAttendance
+                      ? 'Marking...'
+                      : 'Mark Attendance',
+                ),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -383,6 +742,54 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
                   _errorMessage!,
                   style: TextStyle(
                     color: colorScheme.onErrorContainer,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWarningBanner() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.orange.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.warning_amber_rounded,
+            color: Colors.orange,
+            size: 24,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text(
+                  'No Active Session',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.orange,
+                    fontSize: 14,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Your lecturer has not started an attendance session yet.',
+                  style: TextStyle(
+                    color: Colors.orange,
                     fontSize: 13,
                   ),
                 ),
