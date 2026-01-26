@@ -338,7 +338,7 @@ class ApiService {
     }
   }
 
-  // Mark attendance (for students)
+  // Mark attendance (for students) - OLD METHOD - Can be removed if not used elsewhere
   Future<Map<String, dynamic>> markAttendance({
     required String sessionCode,
   }) async {
@@ -374,6 +374,68 @@ class ApiService {
         return {
           'success': false,
           'message': data['message'] ?? 'Failed to mark attendance',
+        };
+      }
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Network error: ${e.toString()}',
+      };
+    }
+  }
+
+  // Mark attendance with beacon data (for students) - NEW METHOD
+  Future<Map<String, dynamic>> markAttendanceWithBeacon({
+    required int selectedCourseId,
+    required int beaconMajor,
+    required int beaconMinor,
+  }) async {
+    try {
+      final token = await _storage.getToken();
+
+      if (token == null) {
+        return {
+          'success': false,
+          'message': 'Not authenticated',
+        };
+      }
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/attendance/mark'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'selected_course_id': selectedCourseId,
+          'scanned_data': {
+            'major': beaconMajor,
+            'minor': beaconMinor,
+          },
+          'timestamp': DateTime.now().toUtc().toIso8601String(),
+        }),
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (data['status'] == 'already_marked') {
+          return {
+            'success': false,
+            'message': data['message'] ?? 'Attendance already recorded',
+            'already_marked': true,
+          };
+        }
+
+        return {
+          'success': true,
+          'message': data['message'] ?? 'Attendance marked successfully',
+          'data': data['data'],
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['error'] ?? data['message'] ?? 'Failed to mark attendance',
         };
       }
     } catch (e) {
@@ -425,7 +487,55 @@ class ApiService {
     }
   }
 
+  // Get active session for a course (for students) - NEW METHOD
+  Future<Map<String, dynamic>> getActiveSessionForCourse(int courseId) async {
+    try {
+      final token = await _storage.getToken();
 
+      if (token == null) {
+        return {
+          'success': false,
+          'message': 'Not authenticated',
+        };
+      }
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/sessions/active/$courseId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'has_active_session': true,
+          'session': data,
+        };
+      } else if (response.statusCode == 404) {
+        return {
+          'success': true,
+          'has_active_session': false,
+          'message': 'No active session for this course',
+        };
+      } else {
+        return {
+          'success': false,
+          'message': data['error'] ?? 'Failed to check session',
+        };
+      }
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Network error: ${e.toString()}',
+      };
+    }
+  }
+
+  // End attendance session
   Future<Map<String, dynamic>> endAttendanceSession({
     required int sessionId,
   }) async {
