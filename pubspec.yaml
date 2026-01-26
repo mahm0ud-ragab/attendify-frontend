@@ -20,14 +20,16 @@ dependencies:
   shared_preferences: ^2.2.2
 
   # Bluetooth & Beacon Scanning
-  flutter_blue_plus: ^1.31.0
-
+  flutter_blue_plus: ^1.32.12
   # Permissions
-  permission_handler: ^11.1.0
+  permission_handler: ^11.3.1
   # iBeacon
   flutter_beacon: ^0.5.1
   #secure storage
   flutter_secure_storage: ^9.0.0
+
+  device_info_plus: ^10.0.0  # For Android version detection
+
 
 dev_dependencies:
   flutter_test:
@@ -40,7 +42,6 @@ flutter:
   # Assets (Logo, Images, etc.)
   assets:
     - assets/images/
-    - assets/icons/
 
   # Fonts (Optional - Uncomment if you want custom fonts)
   # fonts:

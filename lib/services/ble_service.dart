@@ -13,45 +13,80 @@ class BLEService {
 
   // Check and request permissions
   Future<bool> checkPermissions() async {
-    // Check Bluetooth
-    if (!await Permission.bluetooth.isGranted) {
-      final result = await Permission.bluetooth.request();
-      if (!result.isGranted) return false;
-    }
+    print('🔐 Checking permissions...');
 
-    // Check Location (required for BLE scanning on Android)
-    if (!await Permission.location.isGranted) {
-      final result = await Permission.location.request();
-      if (!result.isGranted) return false;
-    }
+    try {
+      // Request all permissions at once
+      Map<Permission, PermissionStatus> statuses = await [
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+        Permission.bluetoothAdvertise,
+        Permission.location,
+      ].request();
 
-    // Check Bluetooth Scan (Android 12+)
-    if (!await Permission.bluetoothScan.isGranted) {
-      final result = await Permission.bluetoothScan.request();
-      if (!result.isGranted) return false;
-    }
+      print('📊 Permission results:');
+      statuses.forEach((permission, status) {
+        print('   $permission: $status');
+      });
 
-    // Check Bluetooth Advertise (Android 12+)
-    if (!await Permission.bluetoothAdvertise.isGranted) {
-      final result = await Permission.bluetoothAdvertise.request();
-      if (!result.isGranted) return false;
-    }
+      // Check if all are granted
+      bool allGranted = statuses.values.every((status) => status.isGranted);
 
-    return true;
+      if (!allGranted) {
+        print('❌ Some permissions denied');
+
+        // Check for permanently denied
+        bool anyPermanentlyDenied = statuses.values.any((status) => status.isPermanentlyDenied);
+        if (anyPermanentlyDenied) {
+          print('🚫 Some permissions permanently denied - user must enable in settings');
+        }
+
+        return false;
+      }
+
+      // Check Location Services are enabled
+      final serviceEnabled = await Permission.location.serviceStatus.isEnabled;
+      print('   Location services enabled: $serviceEnabled');
+
+      if (!serviceEnabled) {
+        print('   ⚠️ Location services are disabled!');
+        return false;
+      }
+
+      print('✅ All permissions granted!');
+      return true;
+    } catch (e) {
+      print('❌ Error checking permissions: $e');
+      return false;
+    }
   }
 
   // Initialize BLE
   Future<bool> initialize() async {
     try {
+      print('🔧 Initializing flutter_beacon...');
+
       await flutterBeacon.initializeScanning;
+
+      print('✅ flutter_beacon initialized');
+
+      // Check if Bluetooth is available
+      final state = await flutterBeacon.bluetoothState;
+      print('📶 Bluetooth state: $state');
+
+      if (state == BluetoothState.stateOff) {
+        print('⚠️ Bluetooth is OFF');
+        return false;
+      }
+
       return true;
     } catch (e) {
-      print('BLE initialization error: $e');
+      print('❌ BLE initialization error: $e');
       return false;
     }
   }
 
-  // Broadcast beacon (for lecturers) - Fixed API usage
+  // Broadcast beacon (for lecturers)
   Future<void> startBroadcasting({
     required int major,
     required int minor,
@@ -71,9 +106,9 @@ class BLEService {
       await flutterBeacon.startBroadcast(beaconBroadcast);
       _isBroadcasting = true;
 
-      print('Broadcasting beacon: UUID=$beaconUUID, Major=$major, Minor=$minor');
+      print('📡 Broadcasting beacon: UUID=$beaconUUID, Major=$major, Minor=$minor');
     } catch (e) {
-      print('Error starting broadcast: $e');
+      print('❌ Error starting broadcast: $e');
       rethrow;
     }
   }
@@ -86,17 +121,19 @@ class BLEService {
     try {
       await flutterBeacon.stopBroadcast();
       _isBroadcasting = false;
-      print('Stopped broadcasting beacon');
+      print('🛑 Stopped broadcasting beacon');
     } catch (e) {
-      print('Error stopping broadcast: $e');
+      print('❌ Error stopping broadcast: $e');
     }
   }
 
   // Start scanning for beacons (for students) - Returns detected beacons
   Stream<Map<String, dynamic>?> startScanning() async* {
     try {
+      print('🔍 Initializing scanning...');
       await flutterBeacon.initializeScanning;
 
+      print('🎯 Creating region with UUID: $beaconUUID');
       final regions = <Region>[
         Region(
           identifier: 'Attendify',
@@ -104,25 +141,38 @@ class BLEService {
         ),
       ];
 
-      // Listen to ranging results
-      await for (final result in flutterBeacon.ranging(regions)) {
-        if (result.beacons.isNotEmpty) {
-          final beacon = result.beacons.first;
+      print('📡 Starting ranging...');
 
-          // Return beacon data
-          yield {
-            'major': beacon.major,
-            'minor': beacon.minor,
-            'rssi': beacon.rssi,
-            'accuracy': beacon.accuracy,
-            'proximity': beacon.proximity.toString(),
-          };
+      await for (final result in flutterBeacon.ranging(regions)) {
+        print('📊 Ranging result received:');
+        print('   Region: ${result.region.identifier}');
+        print('   Beacons found: ${result.beacons.length}');
+
+        if (result.beacons.isNotEmpty) {
+          for (var beacon in result.beacons) {
+            print('   ✅ Beacon detected:');
+            print('      UUID: ${beacon.proximityUUID}');
+            print('      Major: ${beacon.major}');
+            print('      Minor: ${beacon.minor}');
+            print('      RSSI: ${beacon.rssi}');
+            print('      Accuracy: ${beacon.accuracy}');
+
+            yield {
+              'major': beacon.major,
+              'minor': beacon.minor,
+              'rssi': beacon.rssi,
+              'accuracy': beacon.accuracy,
+              'proximity': beacon.proximity.toString(),
+            };
+          }
         } else {
+          print('   📭 No beacons in range');
           yield null;
         }
       }
     } catch (e) {
-      print('Error scanning: $e');
+      print('❌ Error during scanning: $e');
+      print('   Stack trace: ${StackTrace.current}');
       yield null;
     }
   }
@@ -131,7 +181,7 @@ class BLEService {
   Future<void> stopScanning() async {
     await _rangingSubscription?.cancel();
     _rangingSubscription = null;
-    print('Stopped scanning for beacons');
+    print('🛑 Stopped scanning for beacons');
   }
 
   // Check if Bluetooth is enabled
@@ -154,11 +204,10 @@ class BLEService {
 
       return false;
     } catch (e) {
-      print("Bluetooth check error: $e");
+      print("❌ Bluetooth check error: $e");
       return false;
     }
   }
-
 
   // Dispose
   void dispose() {
