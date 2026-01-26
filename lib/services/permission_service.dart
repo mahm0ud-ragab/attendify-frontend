@@ -1,4 +1,5 @@
 import 'package:permission_handler/permission_handler.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'dart:io' show Platform;
 
 class PermissionService {
@@ -161,15 +162,19 @@ class PermissionService {
     await openAppSettings();
   }
 
+
   /// Get Android API level
   Future<int> _getAndroidVersion() async {
     if (!Platform.isAndroid) return 0;
 
     try {
-      // This is a simplified check - you might need to use device_info_plus
-      // for more accurate version detection
-      return 31; // Assume modern Android for now
+      final deviceInfo = DeviceInfoPlugin();
+      final androidInfo = await deviceInfo.androidInfo;
+      final sdkInt = androidInfo.version.sdkInt;
+      print('📱 Android SDK: $sdkInt (Android ${androidInfo.version.release})');
+      return sdkInt;
     } catch (e) {
+      print('⚠️ Could not detect Android version: $e');
       return 31; // Default to Android 12+
     }
   }

@@ -5,7 +5,6 @@ import '../../services/bluetooth_service.dart';
 import '../../services/permission_service.dart';
 import '../../widgets/beacon_card.dart';
 import '../../widgets/control_panel.dart';
-import '../../widgets/empty_state.dart';
 
 class BeaconScannerScreen extends StatefulWidget {
   final int courseId;
@@ -25,7 +24,6 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
   final _bluetoothService = BluetoothService();
   final _permissionService = PermissionService();
 
-  // Getters to access widget properties
   int get courseId => widget.courseId;
   String get courseTitle => widget.courseTitle;
 
@@ -79,11 +77,19 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
 
   Future<void> _startScan() async {
     HapticFeedback.lightImpact();
+    print('🚀 Start Scan button pressed');
 
-    final hasPermissions =
-    await _permissionService.requestBluetoothPermissions();
+    final hasPermissions = await _permissionService.requestBluetoothPermissions();
     if (!hasPermissions) {
+      print('❌ Permissions not granted');
       _showPermissionDialog();
+      return;
+    }
+
+    // Check if location services are enabled
+    final locationEnabled = await _permissionService.isLocationServiceEnabled();
+    if (!locationEnabled) {
+      _showLocationServiceDialog();
       return;
     }
 
@@ -94,7 +100,9 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
 
     try {
       await _bluetoothService.startScan();
+      print('✅ Scan started successfully');
     } catch (e) {
+      print('❌ Scan failed: $e');
       setState(() {
         _statusMessage = 'Scan failed';
         _errorMessage = e.toString();
@@ -104,6 +112,7 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
 
   Future<void> _stopScan() async {
     HapticFeedback.mediumImpact();
+    print('🛑 Stop Scan button pressed');
     await _bluetoothService.stopScan();
     setState(() {
       _statusMessage = 'Scan stopped';
@@ -129,7 +138,7 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
             textAlign: TextAlign.center,
           ),
           content: const Text(
-            'This app needs Bluetooth and Location permissions to scan for beacons.',
+            'This app needs Bluetooth and Location permissions to scan for beacons.\n\nLocation is required by Android for BLE scanning.',
             textAlign: TextAlign.center,
           ),
           actionsAlignment: MainAxisAlignment.center,
@@ -151,15 +160,49 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
     );
   }
 
+  void _showLocationServiceDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final colorScheme = Theme.of(context).colorScheme;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          icon: Icon(
+            Icons.location_off_rounded,
+            size: 48,
+            color: colorScheme.error,
+          ),
+          title: const Text(
+            'Location Services Disabled',
+            textAlign: TextAlign.center,
+          ),
+          content: const Text(
+            'Please enable Location Services in your device settings.\n\nLocation is required by Android for Bluetooth beacon scanning.',
+            textAlign: TextAlign.center,
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Sort beacons by signal strength (strongest first)
     _beacons.sort((a, b) => b.rssi.compareTo(a.rssi));
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(courseTitle), // Show the course name
-        // ✅ REMOVED: Help button (info icon)
+        title: Text(courseTitle),
       ),
       body: RefreshIndicator(
         onRefresh: () async {
@@ -237,9 +280,13 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
-                        Icons.bluetooth_disabled,
+                        _isScanning
+                            ? Icons.bluetooth_searching
+                            : Icons.bluetooth_disabled,
                         size: 80,
-                        color: Colors.grey[400],
+                        color: _isScanning
+                            ? colorScheme.primary.withOpacity(0.6)
+                            : Colors.grey[400],
                       ),
                       const SizedBox(height: 20),
                       Text(
@@ -260,6 +307,18 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
                           color: Colors.grey[500],
                         ),
                       ),
+                      if (_isScanning) ...[
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 4,
+                            valueColor:
+                            AlwaysStoppedAnimation(colorScheme.primary),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -279,8 +338,6 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
                   ),
                 ),
               ),
-
-            // ✅ REMOVED: Bottom info box "How to Test"
           ],
         ),
       ),
@@ -335,5 +392,11 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
         ],
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _bluetoothService.stopScan();
+    super.dispose();
   }
 }
