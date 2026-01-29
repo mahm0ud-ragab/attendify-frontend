@@ -13,9 +13,13 @@ class ApiService {
   // For Windows Desktop or Chrome: 'http://localhost:5000'
 
   // TODO: Replace with your computer's IP address
-  static const String baseUrl = 'http://192.168.1.10:5000';
+  static const String baseUrl = 'http://192.168.1.5:5000';
 
   final StorageService _storage = StorageService();
+
+  // ============================================================================
+  // AUTHENTICATION ENDPOINTS
+  // ============================================================================
 
   // Register a new user
   Future<Map<String, dynamic>> register({
@@ -165,6 +169,15 @@ class ApiService {
     }
   }
 
+  // Logout
+  Future<void> logout() async {
+    await _storage.clearAll();
+  }
+
+  // ============================================================================
+  // COURSE ENDPOINTS
+  // ============================================================================
+
   // Get enrolled courses for student
   Future<Map<String, dynamic>> getEnrolledCourses() async {
     try {
@@ -190,7 +203,7 @@ class ApiService {
       if (response.statusCode == 200) {
         return {
           'success': true,
-          'courses': data['courses'],
+          'courses': data['courses'] ?? [],
         };
       } else {
         return {
@@ -231,7 +244,7 @@ class ApiService {
       if (response.statusCode == 200) {
         return {
           'success': true,
-          'courses': data['courses'],
+          'courses': data['courses'] ?? [],
         };
       } else {
         return {
@@ -288,19 +301,35 @@ class ApiService {
     }
   }
 
-  // Create attendance session (for lecturers) - Updated to match backend
-  Future<Map<String, dynamic>> createAttendanceSession({
+  // ============================================================================
+  // SESSION ENDPOINTS (with /api prefix)
+  // ============================================================================
+
+  // Start attendance session (for lecturers)
+  // POST /api/sessions/start
+  Future<Map<String, dynamic>> startAttendanceSession({
     required int courseId,
   }) async {
     try {
       final token = await _storage.getToken();
       final userId = await _storage.getUserId();
 
-      if (token == null || userId == null) {
+      if (token == null) {
         return {
           'success': false,
           'message': 'Not authenticated',
         };
+      }
+
+      print('🚀 Starting session for course $courseId');
+
+      final requestBody = {
+        'course_id': courseId,
+      };
+
+      // Add user_id if available
+      if (userId != null) {
+        requestBody['user_id'] = userId;
       }
 
       final response = await http.post(
@@ -309,28 +338,29 @@ class ApiService {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
-        body: jsonEncode({
-          'course_id': courseId,
-          'user_id': userId,
-        }),
+        body: jsonEncode(requestBody),
       );
 
-      final data = jsonDecode(response.body);
+      print('📡 Start session response: ${response.statusCode}');
+      print('📡 Response body: ${response.body}');
 
       if (response.statusCode == 201) {
+        final data = jsonDecode(response.body);
         return {
           'success': true,
           'session_id': data['session_id'],
-          'beacon_data': data['beacon_data'],
-          'message': data['message'],
+          'beacon_config': data['beacon_config'] ?? data['beacon_data'],
+          'message': data['message'] ?? 'Session started successfully',
         };
       } else {
+        final data = jsonDecode(response.body);
         return {
           'success': false,
-          'message': data['error'] ?? 'Failed to create session',
+          'message': data['error'] ?? data['message'] ?? 'Failed to start session',
         };
       }
     } catch (e) {
+      print('❌ Error starting session: $e');
       return {
         'success': false,
         'message': 'Network error: ${e.toString()}',
@@ -338,9 +368,10 @@ class ApiService {
     }
   }
 
-  // Mark attendance (for students) - OLD METHOD - Can be removed if not used elsewhere
-  Future<Map<String, dynamic>> markAttendance({
-    required String sessionCode,
+  // End attendance session (for lecturers)
+  // POST /api/sessions/end
+  Future<Map<String, dynamic>> endAttendanceSession({
+    required int sessionId,
   }) async {
     try {
       final token = await _storage.getToken();
@@ -352,31 +383,36 @@ class ApiService {
         };
       }
 
+      print('🛑 Ending session $sessionId');
+
       final response = await http.post(
-        Uri.parse('$baseUrl/auth/attendance/mark'),
+        Uri.parse('$baseUrl/api/sessions/end'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
         body: jsonEncode({
-          'session_code': sessionCode,
+          'session_id': sessionId,
         }),
       );
 
-      final data = jsonDecode(response.body);
+      print('📡 End session response: ${response.statusCode}');
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
         return {
           'success': true,
-          'message': data['message'] ?? 'Attendance marked',
+          'message': data['message'] ?? 'Session ended successfully',
         };
       } else {
+        final data = jsonDecode(response.body);
         return {
           'success': false,
-          'message': data['message'] ?? 'Failed to mark attendance',
+          'message': data['error'] ?? data['message'] ?? 'Failed to end session',
         };
       }
     } catch (e) {
+      print('❌ Error ending session: $e');
       return {
         'success': false,
         'message': 'Network error: ${e.toString()}',
@@ -384,11 +420,76 @@ class ApiService {
     }
   }
 
-  // Mark attendance with beacon data (for students) - NEW METHOD
-  Future<Map<String, dynamic>> markAttendanceWithBeacon({
-    required int selectedCourseId,
-    required int beaconMajor,
-    required int beaconMinor,
+  // ============================================================================
+  // ATTENDANCE ENDPOINTS (WITHOUT /api prefix) - FIXED!
+  // ============================================================================
+
+  // Check if there's an active session for a course (for students)
+  // GET /attendance/active/<course_id>
+  Future<Map<String, dynamic>> checkActiveSession(int courseId) async {
+    try {
+      final token = await _storage.getToken();
+
+      if (token == null) {
+        return {
+          'success': false,
+          'message': 'Not authenticated',
+        };
+      }
+
+      print('🔍 Checking active session: /attendance/active/$courseId');
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/attendance/active/$courseId'), // FIXED: No /api prefix
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      print('📡 Response status: ${response.statusCode}');
+
+      // FIXED: Check status code BEFORE attempting to decode JSON
+      if (response.statusCode == 200) {
+        print('📡 Response body: ${response.body}');
+        final data = jsonDecode(response.body);
+        return {
+          'success': true,
+          'has_active_session': true,
+          'session': data,
+        };
+      }
+
+      if (response.statusCode == 404) {
+        // FIXED: Return structured response without trying to parse HTML 404 page
+        print('ℹ️  No active session found (404)');
+        return {
+          'success': true,
+          'has_active_session': false,
+        };
+      }
+
+      // Any other unexpected status
+      print('⚠️  Unexpected response: ${response.statusCode}');
+      return {
+        'success': false,
+        'message': 'Unexpected server response (${response.statusCode})',
+      };
+    } catch (e) {
+      print('❌ Error checking active session: $e');
+      return {
+        'success': false,
+        'message': 'Network error: ${e.toString()}',
+      };
+    }
+  }
+
+  // Mark attendance with beacon data (for students)
+  // POST /attendance/mark
+  Future<Map<String, dynamic>> markAttendance({
+    required int courseId,
+    required int major,
+    required int minor,
   }) async {
     try {
       final token = await _storage.getToken();
@@ -400,42 +501,111 @@ class ApiService {
         };
       }
 
+      print('📍 Marking attendance: /attendance/mark');
+      print('   Course ID: $courseId, Major: $major, Minor: $minor');
+
       final response = await http.post(
-        Uri.parse('$baseUrl/api/attendance/mark'),
+        Uri.parse('$baseUrl/attendance/mark'), // FIXED: No /api prefix
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
         },
         body: jsonEncode({
-          'selected_course_id': selectedCourseId,
+          'selected_course_id': courseId,
           'scanned_data': {
-            'major': beaconMajor,
-            'minor': beaconMinor,
+            'major': major,
+            'minor': minor,
           },
           'timestamp': DateTime.now().toUtc().toIso8601String(),
         }),
       );
 
-      final data = jsonDecode(response.body);
+      print('📡 Response status: ${response.statusCode}');
+      print('📡 Response body: ${response.body}');
 
-      if (response.statusCode == 200 || response.statusCode == 201) {
-        if (data['status'] == 'already_marked') {
-          return {
-            'success': false,
-            'message': data['message'] ?? 'Attendance already recorded',
-            'already_marked': true,
-          };
-        }
-
+      // FIXED: Check status code BEFORE attempting to decode JSON
+      if (response.statusCode == 201) {
+        final data = jsonDecode(response.body);
         return {
           'success': true,
           'message': data['message'] ?? 'Attendance marked successfully',
-          'data': data['data'],
+          'session_id': data['data']?['session_id'],
+          'student_id': data['data']?['student_id'],
+        };
+      } else if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data['status'] == 'already_marked') {
+          return {
+            'success': false,
+            'already_marked': true,
+            'message': data['message'] ?? 'Attendance already recorded',
+          };
+        }
+        return {
+          'success': true,
+          'message': data['message'] ?? 'Attendance marked successfully',
+        };
+      } else if (response.statusCode == 404) {
+        // FIXED: Don't try to parse HTML 404 page as JSON
+        return {
+          'success': false,
+          'message': 'No active session found for this course',
+        };
+      } else {
+        // Try to parse error message if it's JSON, otherwise use generic message
+        try {
+          final data = jsonDecode(response.body);
+          return {
+            'success': false,
+            'message': data['error'] ?? data['message'] ?? 'Failed to mark attendance',
+          };
+        } catch (_) {
+          return {
+            'success': false,
+            'message': 'Failed to mark attendance (Status: ${response.statusCode})',
+          };
+        }
+      }
+    } catch (e) {
+      print('❌ Error marking attendance: $e');
+      return {
+        'success': false,
+        'message': 'Network error: ${e.toString()}',
+      };
+    }
+  }
+
+  // Get attendance history for a course (for students)
+  Future<Map<String, dynamic>> getAttendanceHistory(int courseId) async {
+    try {
+      final token = await _storage.getToken();
+
+      if (token == null) {
+        return {
+          'success': false,
+          'message': 'Not authenticated',
+        };
+      }
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/auth/attendance/history/$courseId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'attendance': data['attendance'] ?? [],
         };
       } else {
         return {
           'success': false,
-          'message': data['error'] ?? data['message'] ?? 'Failed to mark attendance',
+          'message': data['message'] ?? 'Failed to fetch attendance history',
         };
       }
     } catch (e) {
@@ -446,7 +616,18 @@ class ApiService {
     }
   }
 
-  // Get active session for a course (for lecturers)
+  // ============================================================================
+  // LEGACY/DEPRECATED METHODS (kept for backward compatibility)
+  // ============================================================================
+
+  // Alias for startAttendanceSession
+  Future<Map<String, dynamic>> createAttendanceSession({
+    required int courseId,
+  }) async {
+    return startAttendanceSession(courseId: courseId);
+  }
+
+  // Get active session for a course (for lecturers) - uses auth route
   Future<Map<String, dynamic>> getActiveSession(int courseId) async {
     try {
       final token = await _storage.getToken();
@@ -485,104 +666,5 @@ class ApiService {
         'message': 'Network error: ${e.toString()}',
       };
     }
-  }
-
-  // Get active session for a course (for students) - NEW METHOD
-  Future<Map<String, dynamic>> getActiveSessionForCourse(int courseId) async {
-    try {
-      final token = await _storage.getToken();
-
-      if (token == null) {
-        return {
-          'success': false,
-          'message': 'Not authenticated',
-        };
-      }
-
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/sessions/active/$courseId'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
-
-      final data = jsonDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return {
-          'success': true,
-          'has_active_session': true,
-          'session': data,
-        };
-      } else if (response.statusCode == 404) {
-        return {
-          'success': true,
-          'has_active_session': false,
-          'message': 'No active session for this course',
-        };
-      } else {
-        return {
-          'success': false,
-          'message': data['error'] ?? 'Failed to check session',
-        };
-      }
-    } catch (e) {
-      return {
-        'success': false,
-        'message': 'Network error: ${e.toString()}',
-      };
-    }
-  }
-
-  // End attendance session
-  Future<Map<String, dynamic>> endAttendanceSession({
-    required int sessionId,
-  }) async {
-    try {
-      final token = await _storage.getToken();
-
-      if (token == null) {
-        return {
-          'success': false,
-          'message': 'Not authenticated',
-        };
-      }
-
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/sessions/end'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'session_id': sessionId,
-        }),
-      );
-
-      final data = jsonDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return {
-          'success': true,
-          'message': data['message'] ?? 'Session ended successfully',
-        };
-      } else {
-        return {
-          'success': false,
-          'message': data['error'] ?? 'Failed to end session',
-        };
-      }
-    } catch (e) {
-      return {
-        'success': false,
-        'message': 'Network error: ${e.toString()}',
-      };
-    }
-  }
-
-  // Logout
-  Future<void> logout() async {
-    await _storage.clearAll();
   }
 }

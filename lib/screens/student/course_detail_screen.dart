@@ -1,18 +1,16 @@
-// Course Detail Screen
-
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
-import '../../services/ble_service.dart';
+import 'beacon_scanner_screen.dart';
 
 class CourseDetailScreen extends StatefulWidget {
   final int courseId;
-  final String courseTitle;
+  final String courseName;
   final bool isLecturer;
 
   const CourseDetailScreen({
     super.key,
     required this.courseId,
-    required this.courseTitle,
+    required this.courseName,
     this.isLecturer = false,
   });
 
@@ -20,486 +18,907 @@ class CourseDetailScreen extends StatefulWidget {
   State<CourseDetailScreen> createState() => _CourseDetailScreenState();
 }
 
-class _CourseDetailScreenState extends State<CourseDetailScreen> {
-  final _apiService = ApiService();
-  final _bleService = BLEService();
-  Map<String, dynamic>? _courseData;
-  bool _isLoading = true;
-  bool _isBroadcasting = false;
-  Map<String, dynamic>? _beaconData;
-  int? _sessionId;
+class _CourseDetailScreenState extends State<CourseDetailScreen>
+    with SingleTickerProviderStateMixin {
+  final ApiService _apiService = ApiService();
+
+  late TabController _tabController;
+
+  Map<String, dynamic>? _courseDetails;
+  List<dynamic> _attendanceHistory = [];
+  bool _isLoadingDetails = true;
+  bool _isLoadingHistory = true;
+  bool _hasActiveSession = false;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _loadCourseDetails();
+    _loadAttendanceHistory();
+    if (!widget.isLecturer) {
+      _checkActiveSession();
+    }
   }
 
   @override
   void dispose() {
-    if (_isBroadcasting) {
-      _bleService.stopBroadcasting();
-    }
+    _tabController.dispose();
     super.dispose();
-  }
-
-  Future<void> _startBroadcasting() async {
-    if (_beaconData == null) return;
-
-    try {
-      await _bleService.startBroadcasting(
-        major: _beaconData!['major'],
-        minor: _beaconData!['minor'],
-      );
-      print('Started broadcasting: ${_beaconData}');
-    } catch (e) {
-      print('Broadcasting error: $e');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to start broadcasting: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _stopBroadcasting() async {
-    if (_sessionId == null) return; // Safety check
-
-    // Call API to end session
-    final result = await _apiService.endAttendanceSession(sessionId: _sessionId!);
-
-    if (!mounted) return;
-
-    if (result['success']) {
-      // Stop broadcasting locally
-      await _bleService.stopBroadcasting();
-      setState(() {
-        _isBroadcasting = false;
-        _beaconData = null;
-        _sessionId = null;
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result['message']),
-          backgroundColor: Colors.orange,
-        ),
-      );
-    } else {
-      // Show error if ending session failed
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result['message']),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
-  }
-
-  Future<void> _generateBeacon() async {
-    print('Generate beacon tapped');
-
-    // Check permissions
-    final hasPermission = await _bleService.checkPermissions();
-    if (!hasPermission) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Bluetooth and Location permissions are required'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    // Check if Bluetooth is enabled
-    final isBluetoothOn = await _bleService.isBluetoothEnabled();
-    if (!isBluetoothOn) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enable Bluetooth'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    // Show loading
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(),
-      ),
-    );
-
-    print('Creating attendance session for course ${widget.courseId}');
-
-    // Create session on backend
-    final result = await _apiService.createAttendanceSession(
-      courseId: widget.courseId,
-    );
-
-    print('Backend response: $result');
-
-    if (!mounted) return;
-    Navigator.pop(context); // Close loading
-
-    if (result['success']) {
-      setState(() {
-        _sessionId = result['session_id'];
-        _beaconData = result['beacon_data'];
-        _isBroadcasting = true;
-      });
-
-      print('Session created successfully: $_beaconData');
-
-      // Start broadcasting
-      await _startBroadcasting();
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Attendance session started successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } else {
-      print('Failed to create session: ${result['message']}');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result['message']),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
   }
 
   Future<void> _loadCourseDetails() async {
     setState(() {
-      _isLoading = true;
+      _isLoadingDetails = true;
+      _errorMessage = null;
     });
 
     final result = await _apiService.getCourseDetails(widget.courseId);
 
+    if (mounted) {
+      setState(() {
+        _isLoadingDetails = false;
+        if (result['success']) {
+          _courseDetails = result['course'];
+          // Normalize course data to handle different key formats
+          if (_courseDetails != null) {
+            // Ensure we have course_name for backward compatibility
+            _courseDetails!['course_name'] = _courseDetails!['course_name'] ??
+                _courseDetails!['title'] ??
+                widget.courseName;
+            _courseDetails!['course_code'] = _courseDetails!['course_code'] ??
+                _courseDetails!['code'] ??
+                'N/A';
+            // Handle lecturer info
+            if (_courseDetails!['lecturer'] != null) {
+              _courseDetails!['lecturer_name'] = _courseDetails!['lecturer']['name'];
+            } else {
+              _courseDetails!['lecturer_name'] = _courseDetails!['lecturer_name'] ?? 'Unknown';
+            }
+            // Handle enrollment count
+            _courseDetails!['enrollment_count'] = _courseDetails!['enrollment_count'] ??
+                _courseDetails!['enrolled_count'] ??
+                0;
+          }
+        } else {
+          _errorMessage = result['message'];
+        }
+      });
+    }
+  }
+
+  Future<void> _loadAttendanceHistory() async {
     setState(() {
-      if (result['success']) {
-        _courseData = result['course'];
-      }
-      _isLoading = false;
+      _isLoadingHistory = true;
     });
+
+    final result = await _apiService.getAttendanceHistory(widget.courseId);
+
+    if (mounted) {
+      setState(() {
+        _isLoadingHistory = false;
+        if (result['success']) {
+          _attendanceHistory = result['attendance'] ?? [];
+        }
+      });
+    }
+  }
+
+  Future<void> _checkActiveSession() async {
+    try {
+      print('🔍 Checking active session for course ${widget.courseId}...');
+      final result = await _apiService.checkActiveSession(widget.courseId);
+      print('📡 Active session result: $result');
+
+      if (mounted) {
+        setState(() {
+          _hasActiveSession = result['has_active_session'] ?? false;
+          print('✅ Active session status: $_hasActiveSession');
+        });
+      }
+    } catch (e) {
+      print('❌ Error checking active session: $e');
+      // Don't block the user - let them try to scan anyway
+      if (mounted) {
+        setState(() {
+          _hasActiveSession = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _navigateToScanner() async {
+    // Always allow navigation - let the scanner screen handle session validation
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => BeaconScannerScreen(
+          courseId: widget.courseId,
+          courseName: widget.courseName,
+        ),
+      ),
+    );
+
+    // If attendance was marked, reload history
+    if (result == true) {
+      _loadAttendanceHistory();
+      _checkActiveSession();
+    }
+  }
+
+  Future<void> _refresh() async {
+    await Future.wait([
+      _loadCourseDetails(),
+      _loadAttendanceHistory(),
+      if (!widget.isLecturer) _checkActiveSession(),
+    ]);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.courseTitle),
+        title: Text(widget.courseName),
         centerTitle: true,
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: [
+            Tab(
+              icon: const Icon(Icons.info),
+              text: widget.isLecturer ? 'Course Info' : 'Details',
+            ),
+            Tab(
+              icon: const Icon(Icons.history),
+              text: widget.isLecturer ? 'Attendance' : 'My History',
+            ),
+          ],
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _refresh,
+            tooltip: 'Refresh',
+          ),
+        ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _courseData == null
-          ? const Center(
-        child: Text('Failed to load course details'),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _buildDetailsTab(),
+          _buildHistoryTab(),
+        ],
+      ),
+      floatingActionButton: !widget.isLecturer && _hasActiveSession
+          ? FloatingActionButton.extended(
+        onPressed: _navigateToScanner,
+        icon: const Icon(Icons.bluetooth_searching),
+        label: const Text('Scan Beacon'),
+        backgroundColor: Colors.green,
       )
-          : RefreshIndicator(
-        onRefresh: _loadCourseDetails,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Course Info Card
+          : null,
+    );
+  }
+
+  Widget _buildDetailsTab() {
+    if (_isLoadingDetails) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 64,
+              color: Colors.red.shade300,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Error loading course details',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[800],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _loadCourseDetails,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Try Again'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_courseDetails == null) {
+      return const Center(
+        child: Text('No course details available'),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Student: Session Status Card
+            if (!widget.isLecturer) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: _hasActiveSession
+                      ? Colors.green.shade50
+                      : Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _hasActiveSession
+                        ? Colors.green
+                        : Colors.grey.shade300,
+                    width: 2,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _hasActiveSession ? Icons.check_circle : Icons.cancel,
+                      color: _hasActiveSession ? Colors.green : Colors.grey,
+                      size: 32,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _hasActiveSession
+                                ? 'Active Session'
+                                : 'No Active Session',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: _hasActiveSession
+                                  ? Colors.green.shade900
+                                  : Colors.grey.shade700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _hasActiveSession
+                                ? 'You can mark attendance now'
+                                : 'Wait for lecturer to start session',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: _hasActiveSession
+                                  ? Colors.green.shade700
+                                  : Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
+
+            // Lecturer: Statistics Cards
+            if (widget.isLecturer) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildStatCard(
+                      icon: Icons.people,
+                      label: 'Enrolled',
+                      value: '${_courseDetails!['enrollment_count'] ?? 0}',
+                      color: Colors.blue,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildStatCard(
+                      icon: Icons.event,
+                      label: 'Sessions',
+                      value: '${_attendanceHistory.length}',
+                      color: Colors.purple,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+            ],
+
+            // Course Information
+            _buildSectionTitle('Course Information'),
+            const SizedBox(height: 12),
+            _buildInfoCard([
+              _buildInfoRow(
+                Icons.book,
+                'Course Name',
+                _courseDetails!['course_name'] ?? widget.courseName,
+              ),
+              _buildInfoRow(
+                Icons.code,
+                'Course Code',
+                _courseDetails!['course_code'] ?? 'N/A',
+              ),
+              _buildInfoRow(
+                Icons.person,
+                'Instructor',
+                _courseDetails!['lecturer_name'] ?? 'Unknown',
+              ),
+              if (!widget.isLecturer)
+                _buildInfoRow(
+                  Icons.group,
+                  'Enrolled Students',
+                  '${_courseDetails!['enrollment_count'] ?? 0}',
+                ),
+            ]),
+
+            const SizedBox(height: 24),
+
+            // Quick Actions (Student Only) - FIXED VERSION
+            if (!widget.isLecturer) ...[
+              _buildSectionTitle('Quick Actions'),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildActionButton(
+                      icon: Icons.bluetooth_searching,
+                      label: 'Scan Beacon',
+                      // FIXED: Always show green/blue color, always enabled
+                      color: Colors.blue,  // Changed from conditional to always blue
+                      onTap: _navigateToScanner,  // Changed from conditional to always enabled
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildActionButton(
+                      icon: Icons.history,
+                      label: 'View History',
+                      color: Colors.purple,
+                      onTap: () {
+                        _tabController.animateTo(1);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+
+            // Lecturer: Course Description
+            if (widget.isLecturer &&
+                _courseDetails!['description'] != null &&
+                _courseDetails!['description'].toString().isNotEmpty) ...[
+              _buildSectionTitle('Description'),
+              const SizedBox(height: 12),
               Card(
                 elevation: 2,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.all(20.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context)
-                                  .primaryColor
-                                  .withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Icon(
-                              Icons.book,
-                              color: Theme.of(context).primaryColor,
-                              size: 30,
-                            ),
-                          ),
-                          const SizedBox(width: 15),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _courseData!['title'],
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 5),
-                                if (_courseData!['lecturer'] != null)
-                                  Text(
-                                    'Dr. ${_courseData!['lecturer']['name']}',
-                                    style: TextStyle(
-                                      color: Colors.grey[600],
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 15),
-                      const Divider(),
-                      const SizedBox(height: 10),
-                      Text(
-                        'Description',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey[800],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _courseData!['description'] ??
-                            'No description available',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                          height: 1.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Lecturer View: Generate/Stop Beacon Button
-              if (widget.isLecturer) ...[
-                if (_isBroadcasting) ...[
-                  // Active session card
-                  Card(
-                    color: Colors.green.shade50,
-                    elevation: 2,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 12,
-                                height: 12,
-                                decoration: const BoxDecoration(
-                                  color: Colors.green,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              const Expanded(
-                                child: Text(
-                                  'Broadcasting Attendance Beacon',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.green,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          if (_beaconData != null) ...[
-                            Text(
-                              'Major: ${_beaconData!['major']} | Minor: ${_beaconData!['minor']}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[700],
-                              ),
-                            ),
-                            const SizedBox(height: 5),
-                            Text(
-                              'UUID: ${_beaconData!['uuid']}',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                            const SizedBox(height: 15),
-                          ],
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: _stopBroadcasting,
-                              icon: const Icon(Icons.stop),
-                              label: const Text('End Session'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ] else ...[
-                  // ✅ Generate beacon button with WHITE Bluetooth icon
-                  SizedBox(
-                    width: double.infinity,
-                    height: 55,
-                    child: ElevatedButton.icon(
-                      onPressed: _generateBeacon,
-                      icon: const Icon(
-                        Icons.bluetooth,
-                        size: 28,
-                        color: Colors.white, // ✅ WHITE COLOR
-                      ),
-                      label: const Text(
-                        'Generate Attendance Beacon',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurple,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 20),
-              ],
-
-              // Enrolled Students Section
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Enrolled Students',
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    _courseDetails!['description'],
                     style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: Colors.grey[700],
+                      height: 1.5,
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context)
-                          .primaryColor
-                          .withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${_courseData!['enrolled_count']} students',
-                      style: TextStyle(
-                        color: Theme.of(context).primaryColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 15),
-
-              // Students List
-              if (_courseData!['enrolled_students'].isEmpty)
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(40.0),
-                    child: Column(
-                      children: [
-                        Icon(
-                          Icons.people_outline,
-                          size: 60,
-                          color: Colors.grey[400],
-                        ),
-                        const SizedBox(height: 15),
-                        Text(
-                          'No students enrolled yet',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              else
-                ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _courseData!['enrolled_students'].length,
-                  itemBuilder: (context, index) {
-                    final student =
-                    _courseData!['enrolled_students'][index];
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Theme.of(context)
-                              .primaryColor
-                              .withOpacity(0.1),
-                          child: Text(
-                            student['name'][0].toUpperCase(),
-                            style: TextStyle(
-                              color: Theme.of(context).primaryColor,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        title: Text(
-                          student['name'],
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        subtitle: Text(student['email']),
-                      ),
-                    );
-                  },
                 ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHistoryTab() {
+    if (_isLoadingHistory) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (_attendanceHistory.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.event_busy,
+              size: 80,
+              color: Colors.grey[400],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              widget.isLecturer
+                  ? 'No Sessions Yet'
+                  : 'No Attendance Records',
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey[700],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              widget.isLecturer
+                  ? 'Start a session to track attendance'
+                  : 'You haven\'t marked attendance yet',
+              style: TextStyle(
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _loadAttendanceHistory,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _attendanceHistory.length,
+        itemBuilder: (context, index) {
+          final record = _attendanceHistory[index];
+          return widget.isLecturer
+              ? _buildLecturerAttendanceCard(record, index)
+              : _buildStudentAttendanceCard(record, index);
+        },
+      ),
+    );
+  }
+
+  // Lecturer Statistics Card
+  Widget _buildStatCard({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Card(
+      elevation: 3,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [color, color.withOpacity(0.7)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: Colors.white, size: 32),
+            const SizedBox(height: 12),
+            Text(
+              value,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title) {
+    return Text(
+      title,
+      style: TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        color: Colors.grey[800],
+      ),
+    );
+  }
+
+  Widget _buildInfoCard(List<Widget> children) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: children,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: Colors.blue),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // FIXED: Button always looks enabled and clickable
+  Widget _buildActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback? onTap,
+  }) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          decoration: BoxDecoration(
+            // Add subtle gradient to make it look more attractive
+            gradient: LinearGradient(
+              colors: [
+                color.withOpacity(0.1),
+                color.withOpacity(0.05),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            children: [
+              Icon(icon, size: 32, color: color),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  // Student Attendance Card
+  Widget _buildStudentAttendanceCard(Map<String, dynamic> record, int index) {
+    final sessionId = record['session_id'] ?? 0;
+    final scanTime = record['scan_time'] ?? record['timestamp'] ?? 'Unknown';
+
+    // Parse and format the date
+    String formattedDate = 'Unknown';
+    String formattedTime = 'Unknown';
+
+    try {
+      final dateTime = DateTime.parse(scanTime);
+      formattedDate = '${dateTime.day}/${dateTime.month}/${dateTime.year}';
+      formattedTime =
+      '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+    } catch (e) {
+      formattedDate = scanTime;
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.check_circle,
+                color: Colors.green.shade700,
+                size: 28,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Session #$sessionId',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(Icons.calendar_today,
+                          size: 14, color: Colors.grey[600]),
+                      const SizedBox(width: 4),
+                      Text(
+                        formattedDate,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Icon(Icons.access_time,
+                          size: 14, color: Colors.grey[600]),
+                      const SizedBox(width: 4),
+                      Text(
+                        formattedTime,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 6,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.green.shade100,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                'Present',
+                style: TextStyle(
+                  color: Colors.green.shade700,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Lecturer Attendance Card (shows session info and student count)
+  Widget _buildLecturerAttendanceCard(
+      Map<String, dynamic> record, int index) {
+    final sessionId = record['session_id'] ?? 0;
+    final sessionDate = record['session_date'] ?? record['created_at'] ?? 'Unknown';
+    final attendanceCount = record['attendance_count'] ?? 0;
+    final totalEnrolled = _courseDetails?['enrollment_count'] ?? 0;
+
+    // Parse and format the date
+    String formattedDate = 'Unknown';
+    String formattedTime = 'Unknown';
+
+    try {
+      final dateTime = DateTime.parse(sessionDate);
+      formattedDate = '${dateTime.day}/${dateTime.month}/${dateTime.year}';
+      formattedTime =
+      '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
+    } catch (e) {
+      formattedDate = sessionDate;
+    }
+
+    // Calculate attendance percentage
+    final percentage = totalEnrolled > 0
+        ? ((attendanceCount / totalEnrolled) * 100).toStringAsFixed(0)
+        : '0';
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.event,
+                    color: Colors.blue.shade700,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Session #$sessionId',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.calendar_today,
+                              size: 14, color: Colors.grey[600]),
+                          const SizedBox(width: 4),
+                          Text(
+                            formattedDate,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Icon(Icons.access_time,
+                              size: 14, color: Colors.grey[600]),
+                          const SizedBox(width: 4),
+                          Text(
+                            formattedTime,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Attendance',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$attendanceCount / $totalEnrolled',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _getAttendanceColor(double.parse(percentage))
+                        .withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _getAttendanceColor(double.parse(percentage)),
+                      width: 2,
+                    ),
+                  ),
+                  child: Text(
+                    '$percentage%',
+                    style: TextStyle(
+                      color: _getAttendanceColor(double.parse(percentage)),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _getAttendanceColor(double percentage) {
+    if (percentage >= 75) {
+      return Colors.green;
+    } else if (percentage >= 50) {
+      return Colors.orange;
+    } else {
+      return Colors.red;
+    }
   }
 }
