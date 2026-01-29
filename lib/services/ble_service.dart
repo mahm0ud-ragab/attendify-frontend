@@ -1,4 +1,5 @@
 // BLE Beacon Service for Broadcasting and Scanning
+// Using flutter_beacon for both broadcasting and scanning
 
 import 'dart:async';
 import 'package:flutter_beacon/flutter_beacon.dart';
@@ -9,36 +10,51 @@ class BLEService {
   static const String beaconUUID = '123e4567-e89b-12d3-a456-426614174000';
 
   StreamSubscription<RangingResult>? _rangingSubscription;
+  final StreamController<List<Beacon>> _beaconController =
+  StreamController<List<Beacon>>.broadcast();
+
   bool _isBroadcasting = false;
+  bool _isScanning = false;
+  int? _currentMajor;
+  int? _currentMinor;
+  bool _isInitialized = false;
 
-  // Check and request permissions
+  // ============================================================================
+  // PERMISSIONS
+  // ============================================================================
+
+  /// Check and request all necessary permissions
   Future<bool> checkPermissions() async {
-    print('🔐 Checking permissions...');
-
     try {
       // Request all permissions at once
       Map<Permission, PermissionStatus> statuses = await [
+        Permission.bluetooth,
         Permission.bluetoothScan,
         Permission.bluetoothConnect,
         Permission.bluetoothAdvertise,
         Permission.location,
+        Permission.locationWhenInUse,
       ].request();
 
-      print('📊 Permission results:');
-      statuses.forEach((permission, status) {
-        print('   $permission: $status');
-      });
+      // Check if critical permissions are granted
+      bool bluetoothGranted = statuses[Permission.bluetooth]?.isGranted ?? false;
+      bool bluetoothScanGranted = statuses[Permission.bluetoothScan]?.isGranted ?? true; // True for older Android
+      bool bluetoothConnectGranted = statuses[Permission.bluetoothConnect]?.isGranted ?? true;
+      bool bluetoothAdvertiseGranted = statuses[Permission.bluetoothAdvertise]?.isGranted ?? true;
+      bool locationGranted = statuses[Permission.location]?.isGranted ??
+          statuses[Permission.locationWhenInUse]?.isGranted ??
+          false;
 
-      // Check if all are granted
-      bool allGranted = statuses.values.every((status) => status.isGranted);
+      // For Android 12+, need specific Bluetooth permissions
+      bool hasBluetoothPermissions = bluetoothGranted &&
+          (bluetoothScanGranted || bluetoothConnectGranted || bluetoothAdvertiseGranted);
 
-      if (!allGranted) {
-        print('❌ Some permissions denied');
-
+      if (!hasBluetoothPermissions || !locationGranted) {
         // Check for permanently denied
-        bool anyPermanentlyDenied = statuses.values.any((status) => status.isPermanentlyDenied);
+        bool anyPermanentlyDenied =
+        statuses.values.any((status) => status.isPermanentlyDenied);
         if (anyPermanentlyDenied) {
-          print('🚫 Some permissions permanently denied - user must enable in settings');
+          await openAppSettings();
         }
 
         return false;
@@ -46,94 +62,190 @@ class BLEService {
 
       // Check Location Services are enabled
       final serviceEnabled = await Permission.location.serviceStatus.isEnabled;
-      print('   Location services enabled: $serviceEnabled');
 
       if (!serviceEnabled) {
-        print('   ⚠️ Location services are disabled!');
         return false;
       }
 
-      print('✅ All permissions granted!');
       return true;
     } catch (e) {
-      print('❌ Error checking permissions: $e');
       return false;
     }
   }
 
-  // Initialize BLE
+  // ============================================================================
+  // INITIALIZATION
+  // ============================================================================
+
+  /// Initialize flutter_beacon
   Future<bool> initialize() async {
     try {
-      print('🔧 Initializing flutter_beacon...');
-
-      await flutterBeacon.initializeScanning;
-
-      print('✅ flutter_beacon initialized');
-
-      // Check if Bluetooth is available
-      final state = await flutterBeacon.bluetoothState;
-      print('📶 Bluetooth state: $state');
-
-      if (state == BluetoothState.stateOff) {
-        print('⚠️ Bluetooth is OFF');
-        return false;
+      if (_isInitialized) {
+        return true; // Already initialized
       }
 
+      // Initialize the beacon plugin for scanning
+      await flutterBeacon.initializeScanning;
+
+      // Initialize broadcasting (Android only)
+      try {
+        await flutterBeacon.initializeAndCheckScanning;
+      } catch (e) {
+        // Broadcasting initialization warning - normal on some devices
+        // This is expected on iOS and some Android devices
+      }
+
+      // Check Bluetooth authorization (iOS)
+      try {
+        final authorizationStatus = await flutterBeacon.authorizationStatus;
+
+        if (authorizationStatus == AuthorizationStatus.notDetermined) {
+          await flutterBeacon.requestAuthorization;
+        } else if (authorizationStatus == AuthorizationStatus.denied) {
+          return false;
+        }
+      } catch (e) {
+        // Authorization check might fail on Android - that's okay
+      }
+
+      _isInitialized = true;
       return true;
     } catch (e) {
-      print('❌ BLE initialization error: $e');
+      _isInitialized = false;
       return false;
     }
   }
 
-  // Broadcast beacon (for lecturers)
+  // ============================================================================
+  // BROADCASTING (for Lecturers)
+  // ============================================================================
+
+  /// Start broadcasting iBeacon
   Future<void> startBroadcasting({
     required int major,
     required int minor,
   }) async {
     try {
-      await flutterBeacon.initializeScanning;
+      // Ensure initialized
+      if (!_isInitialized) {
+        final initialized = await initialize();
+        if (!initialized) {
+          throw Exception('Failed to initialize BLE service');
+        }
+      }
 
-      // Create beacon broadcast parameters
-      final beaconBroadcast = BeaconBroadcast(
+      // Stop previous broadcast if any
+      if (_isBroadcasting) {
+        await stopBroadcasting();
+        // Small delay to ensure previous broadcast is stopped
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+
+      // Create beacon data
+      final beacon = BeaconBroadcast(
         proximityUUID: beaconUUID,
         major: major,
         minor: minor,
         identifier: 'Attendify-Beacon',
+        // Optional: add transmission power if needed
+        // transmissionPower: -59, // Adjust based on your needs
       );
 
       // Start broadcasting
-      await flutterBeacon.startBroadcast(beaconBroadcast);
-      _isBroadcasting = true;
+      await flutterBeacon.startBroadcast(beacon);
 
-      print('📡 Broadcasting beacon: UUID=$beaconUUID, Major=$major, Minor=$minor');
+      _isBroadcasting = true;
+      _currentMajor = major;
+      _currentMinor = minor;
     } catch (e) {
-      print('❌ Error starting broadcast: $e');
-      rethrow;
+      _isBroadcasting = false;
+      _currentMajor = null;
+      _currentMinor = null;
+
+      // Re-throw with more context
+      final errorMessage = e.toString().toLowerCase();
+
+      if (errorMessage.contains('not supported') ||
+          errorMessage.contains('unsupported')) {
+        throw Exception(
+            'Broadcasting not supported on this device. '
+                'This is a hardware limitation. '
+                'Please use a different device or QR code alternative.'
+        );
+      } else if (errorMessage.contains('permission')) {
+        throw Exception(
+            'Bluetooth permissions are required. '
+                'Please grant all Bluetooth and Location permissions in Settings.'
+        );
+      } else if (errorMessage.contains('bluetooth') ||
+          errorMessage.contains('adapter')) {
+        throw Exception(
+            'Bluetooth error. '
+                'Please make sure Bluetooth is turned ON and try again.'
+        );
+      } else if (errorMessage.contains('location')) {
+        throw Exception(
+            'Location services must be enabled. '
+                'Please turn ON Location in device settings.'
+        );
+      } else {
+        throw Exception('Failed to start broadcasting: ${e.toString()}');
+      }
     }
   }
 
-  // Check if currently broadcasting
-  bool get isBroadcasting => _isBroadcasting;
-
-  // Stop broadcasting
+  /// Stop broadcasting
   Future<void> stopBroadcasting() async {
     try {
+      if (!_isBroadcasting) {
+        return;
+      }
+
       await flutterBeacon.stopBroadcast();
+
       _isBroadcasting = false;
-      print('🛑 Stopped broadcasting beacon');
+      _currentMajor = null;
+      _currentMinor = null;
     } catch (e) {
-      print('❌ Error stopping broadcast: $e');
+      // Force state update even if there's an error
+      _isBroadcasting = false;
+      _currentMajor = null;
+      _currentMinor = null;
+      // Don't throw - stopping should always succeed
     }
   }
 
-  // Start scanning for beacons (for students) - Returns detected beacons
-  Stream<Map<String, dynamic>?> startScanning() async* {
-    try {
-      print('🔍 Initializing scanning...');
-      await flutterBeacon.initializeScanning;
+  /// Check if currently broadcasting
+  bool get isBroadcasting => _isBroadcasting;
 
-      print('🎯 Creating region with UUID: $beaconUUID');
+  /// Get current broadcasting major value
+  int? get currentMajor => _currentMajor;
+
+  /// Get current broadcasting minor value
+  int? get currentMinor => _currentMinor;
+
+  // ============================================================================
+  // SCANNING (for Students)
+  // ============================================================================
+
+  /// Start scanning for beacons
+  Stream<List<Beacon>> startScanning() async* {
+    try {
+      // Ensure initialized
+      if (!_isInitialized) {
+        final initialized = await initialize();
+        if (!initialized) {
+          throw Exception('Failed to initialize BLE service');
+        }
+      }
+
+      if (_isScanning) {
+        await stopScanning();
+      }
+
+      _isScanning = true;
+
+      // Define regions to scan
       final regions = <Region>[
         Region(
           identifier: 'Attendify',
@@ -141,77 +253,126 @@ class BLEService {
         ),
       ];
 
-      print('📡 Starting ranging...');
-
-      await for (final result in flutterBeacon.ranging(regions)) {
-        print('📊 Ranging result received:');
-        print('   Region: ${result.region.identifier}');
-        print('   Beacons found: ${result.beacons.length}');
-
-        if (result.beacons.isNotEmpty) {
-          for (var beacon in result.beacons) {
-            print('   ✅ Beacon detected:');
-            print('      UUID: ${beacon.proximityUUID}');
-            print('      Major: ${beacon.major}');
-            print('      Minor: ${beacon.minor}');
-            print('      RSSI: ${beacon.rssi}');
-            print('      Accuracy: ${beacon.accuracy}');
-
-            yield {
-              'major': beacon.major,
-              'minor': beacon.minor,
-              'rssi': beacon.rssi,
-              'accuracy': beacon.accuracy,
-              'proximity': beacon.proximity.toString(),
-            };
+      // Start ranging
+      _rangingSubscription = flutterBeacon.ranging(regions).listen(
+            (RangingResult result) {
+          if (result.beacons.isNotEmpty) {
+            _beaconController.add(result.beacons);
+          } else {
+            _beaconController.add([]);
           }
-        } else {
-          print('   📭 No beacons in range');
-          yield null;
-        }
+        },
+        onError: (error) {
+          _beaconController.addError(error);
+        },
+      );
+
+      // Yield results from the stream
+      await for (final beacons in _beaconController.stream) {
+        yield beacons;
       }
     } catch (e) {
-      print('❌ Error during scanning: $e');
-      print('   Stack trace: ${StackTrace.current}');
-      yield null;
+      _isScanning = false;
+      yield [];
     }
   }
 
-  // Stop scanning
+  /// Stop scanning
   Future<void> stopScanning() async {
-    await _rangingSubscription?.cancel();
-    _rangingSubscription = null;
-    print('🛑 Stopped scanning for beacons');
+    try {
+      await _rangingSubscription?.cancel();
+      _rangingSubscription = null;
+      _isScanning = false;
+    } catch (e) {
+      // Force state update
+      _isScanning = false;
+    }
   }
 
-  // Check if Bluetooth is enabled
-  Future<bool> isBluetoothEnabled() async {
+  /// Check if currently scanning
+  bool get isScanning => _isScanning;
+
+  // ============================================================================
+  // UTILITY METHODS
+  // ============================================================================
+
+  /// Get proximity string from Beacon proximity enum
+  String getProximityString(Proximity proximity) {
+    switch (proximity) {
+      case Proximity.immediate:
+        return 'Very Close';
+      case Proximity.near:
+        return 'Near';
+      case Proximity.far:
+        return 'Far';
+      case Proximity.unknown:
+      default:
+        return 'Unknown';
+    }
+  }
+
+  /// Check if broadcasting is supported on this device
+  Future<bool> isBroadcastingSupported() async {
     try {
-      // 1. Check actual Bluetooth hardware state
-      final bluetoothState = await flutterBeacon.bluetoothState;
-      if (bluetoothState == BluetoothState.stateOn) {
-        return true;
+      // Try to initialize first
+      if (!_isInitialized) {
+        await initialize();
       }
 
-      // 2. For Android 12+ - state may return OFF even when it's on unless permissions granted
-      final scanGranted = await Permission.bluetoothScan.isGranted;
-      final connectGranted = await Permission.bluetoothConnect.isGranted;
+      // Check authorization status
+      final authStatus = await flutterBeacon.authorizationStatus;
 
-      if (scanGranted && connectGranted) {
-        // If permissions granted, assume Bluetooth is usable
-        return true;
+      if (authStatus == AuthorizationStatus.denied) {
+        return false;
       }
 
-      return false;
+      // Try to check if device supports broadcasting
+      // This is a heuristic - not 100% accurate
+      try {
+        await flutterBeacon.initializeAndCheckScanning;
+        return true;
+      } catch (e) {
+        // If initialization fails, broadcasting might not be supported
+        return false;
+      }
     } catch (e) {
-      print("❌ Bluetooth check error: $e");
       return false;
     }
   }
 
-  // Dispose
-  void dispose() {
-    stopBroadcasting();
-    stopScanning();
+  /// Get detailed status information for debugging
+  Future<Map<String, dynamic>> getStatus() async {
+    try {
+      final authStatus = await flutterBeacon.authorizationStatus;
+
+      return {
+        'isInitialized': _isInitialized,
+        'isBroadcasting': _isBroadcasting,
+        'isScanning': _isScanning,
+        'currentMajor': _currentMajor,
+        'currentMinor': _currentMinor,
+        'authorizationStatus': authStatus.toString(),
+      };
+    } catch (e) {
+      return {
+        'error': e.toString(),
+      };
+    }
+  }
+
+  // ============================================================================
+  // CLEANUP
+  // ============================================================================
+
+  /// Dispose and cleanup all resources
+  Future<void> dispose() async {
+    try {
+      await stopBroadcasting();
+      await stopScanning();
+      await _beaconController.close();
+      _isInitialized = false;
+    } catch (e) {
+      // Ignore errors during disposal
+    }
   }
 }
