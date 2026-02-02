@@ -1,8 +1,8 @@
-// Reusable text input field widget
+// Premium reusable text input field widget with floating label
 
 import 'package:flutter/material.dart';
 
-class CustomTextField extends StatelessWidget {
+class CustomTextField extends StatefulWidget {
   final TextEditingController controller;
   final String label;
   final String hint;
@@ -23,47 +23,119 @@ class CustomTextField extends StatelessWidget {
   });
 
   @override
+  State<CustomTextField> createState() => _CustomTextFieldState();
+}
+
+class _CustomTextFieldState extends State<CustomTextField> {
+  bool _isObscured = true;
+
+  @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: Colors.black87,
+    final theme = Theme.of(context);
+    final primaryColor = theme.primaryColor;
+
+    return TextFormField(
+      controller: widget.controller,
+      obscureText: widget.isPassword && _isObscured,
+      keyboardType: widget.keyboardType,
+      validator: widget.validator,
+      style: const TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w500,
+      ),
+      decoration: InputDecoration(
+        labelText: widget.label, // Floating label
+        labelStyle: TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w500,
+          color: Colors.grey[600],
+        ),
+        floatingLabelStyle: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: primaryColor,
+        ),
+        hintText: widget.hint,
+        hintStyle: TextStyle(
+          fontSize: 15,
+          color: Colors.grey[400],
+          fontWeight: FontWeight.w400,
+        ),
+
+        // Prefix icon
+        prefixIcon: widget.prefixIcon != null
+            ? Icon(
+          widget.prefixIcon,
+          color: Colors.grey[600],
+          size: 22,
+        )
+            : null,
+
+        // Password visibility toggle
+        suffixIcon: widget.isPassword
+            ? IconButton(
+          icon: Icon(
+            _isObscured
+                ? Icons.visibility_off_rounded
+                : Icons.visibility_rounded,
+            color: Colors.grey[600],
+            size: 22,
+          ),
+          onPressed: () {
+            setState(() {
+              _isObscured = !_isObscured;
+            });
+          },
+        )
+            : null,
+
+        // Modern borders with soft corners
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(
+            color: Colors.grey.shade300,
+            width: 1.5,
           ),
         ),
-        const SizedBox(height: 8),
-        TextFormField(
-          controller: controller,
-          obscureText: isPassword,
-          keyboardType: keyboardType,
-          validator: validator,
-          decoration: InputDecoration(
-            hintText: hint,
-            prefixIcon: prefixIcon != null ? Icon(prefixIcon) : null,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: Colors.grey),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: Colors.grey),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(
-                color: Theme.of(context).primaryColor,
-                width: 2,
-              ),
-            ),
-            filled: true,
-            fillColor: Colors.grey[50],
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(
+            color: Colors.grey.shade300,
+            width: 1.5,
           ),
         ),
-      ],
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(
+            color: primaryColor.withValues(alpha: 0.8),
+            width: 2.0,
+          ),
+        ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(
+            color: Colors.red,
+            width: 1.5,
+          ),
+        ),
+        focusedErrorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: const BorderSide(
+            color: Colors.red,
+            width: 2.0,
+          ),
+        ),
+
+        // Glassy background
+        filled: true,
+        fillColor: primaryColor.withValues(alpha: 0.04),
+
+        // Padding
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 18,
+        ),
+      ),
     );
   }
 }
