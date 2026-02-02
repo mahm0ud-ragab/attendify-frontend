@@ -303,7 +303,7 @@ class ApiService {
       print("📤 Sending to Backend: $body");
 
       final response = await http.post(
-        Uri.parse('$baseUrl/auth/attendance/mark'),
+        Uri.parse('$baseUrl/api/attendance/mark'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
@@ -341,7 +341,7 @@ class ApiService {
       if (token == null) return {'success': false, 'message': 'Not authenticated'};
 
       final response = await http.get(
-        Uri.parse('$baseUrl/auth/attendance/active/$courseId'),
+        Uri.parse('$baseUrl/api/attendance/active/$courseId'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
