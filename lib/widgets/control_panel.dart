@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// Modern control panel with gradient status card and animated buttons
 class ControlPanel extends StatelessWidget {
@@ -22,14 +23,14 @@ class ControlPanel extends StatelessWidget {
 
     return Column(
       children: [
-        // Status Card with gradient background
+        // Status Card with frosted glass effect
         _StatusCard(
           isScanning: isScanning,
           statusMessage: statusMessage,
           colorScheme: colorScheme,
         ),
 
-        const SizedBox(height: 20),
+        const SizedBox(height: 28), // Increased breathing room
 
         // Control Buttons
         Row(
@@ -39,7 +40,10 @@ class ControlPanel extends StatelessWidget {
                 onPressed: isScanning ? null : onStartScan,
                 icon: Icons.play_circle_filled_rounded,
                 label: 'Start Scan',
-                color: const Color(0xFF00C853),
+                gradientColors: const [
+                  Color(0xFF00C853), // Emerald green
+                  Color(0xFF00897B), // Teal
+                ],
                 isEnabled: !isScanning,
               ),
             ),
@@ -49,7 +53,10 @@ class ControlPanel extends StatelessWidget {
                 onPressed: isScanning ? onStopScan : null,
                 icon: Icons.stop_circle_rounded,
                 label: 'Stop Scan',
-                color: const Color(0xFFFF5252),
+                gradientColors: const [
+                  Color(0xFFFF5252), // Red
+                  Color(0xFFFF6E40), // Deep orange
+                ],
                 isEnabled: isScanning,
               ),
             ),
@@ -60,7 +67,7 @@ class ControlPanel extends StatelessWidget {
   }
 }
 
-// Status card with modern design
+// Status card with frosted glass effect and colored shadows
 class _StatusCard extends StatelessWidget {
   final bool isScanning;
   final String statusMessage;
@@ -79,12 +86,12 @@ class _StatusCard extends StatelessWidget {
         gradient: LinearGradient(
           colors: isScanning
               ? [
-            colorScheme.primary.withOpacity(0.1),
-            colorScheme.secondary.withOpacity(0.05),
+            colorScheme.primary.withValues(alpha: 0.12),
+            colorScheme.secondary.withValues(alpha: 0.08),
           ]
               : [
             colorScheme.surface,
-            colorScheme.surface,
+            colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -92,16 +99,16 @@ class _StatusCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: isScanning
-              ? colorScheme.primary.withOpacity(0.3)
-              : colorScheme.outline.withOpacity(0.2),
-          width: 1.5,
+              ? colorScheme.primary.withValues(alpha: 0.4)
+              : colorScheme.outline.withValues(alpha: 0.15),
+          width: isScanning ? 2.0 : 1.5, // Thicker border when active
         ),
         boxShadow: [
           BoxShadow(
             color: isScanning
-                ? colorScheme.primary.withOpacity(0.1)
-                : Colors.black.withOpacity(0.03),
-            blurRadius: 12,
+                ? colorScheme.primary.withValues(alpha: 0.15) // Colored glow
+                : Colors.black.withValues(alpha: 0.04),
+            blurRadius: isScanning ? 16 : 12,
             offset: const Offset(0, 4),
           ),
         ],
@@ -110,8 +117,8 @@ class _StatusCard extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         child: Row(
           children: [
-            // Animated icon
-            _PulsingIcon(
+            // Animated radar ripple icon
+            _RadarRippleIcon(
               isScanning: isScanning,
               colorScheme: colorScheme,
             ),
@@ -128,10 +135,11 @@ class _StatusCard extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
+                      fontFamily: 'Courier', // Monospaced for technical feel
                       color: isScanning
                           ? colorScheme.primary
-                          : colorScheme.onSurface.withOpacity(0.6),
-                      letterSpacing: 1.5,
+                          : colorScheme.onSurface.withValues(alpha: 0.6),
+                      letterSpacing: 2.0,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -163,24 +171,25 @@ class _StatusCard extends StatelessWidget {
   }
 }
 
-// Pulsing icon animation
-class _PulsingIcon extends StatefulWidget {
+// Radar ripple icon animation (like radio waves)
+class _RadarRippleIcon extends StatefulWidget {
   final bool isScanning;
   final ColorScheme colorScheme;
 
-  const _PulsingIcon({
+  const _RadarRippleIcon({
     required this.isScanning,
     required this.colorScheme,
   });
 
   @override
-  State<_PulsingIcon> createState() => _PulsingIconState();
+  State<_RadarRippleIcon> createState() => _RadarRippleIconState();
 }
 
-class _PulsingIconState extends State<_PulsingIcon>
+class _RadarRippleIconState extends State<_RadarRippleIcon>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  late Animation<double> _animation;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _fadeAnimation;
 
   @override
   void initState() {
@@ -190,20 +199,24 @@ class _PulsingIconState extends State<_PulsingIcon>
       vsync: this,
     );
 
-    _animation = Tween<double>(begin: 1.0, end: 1.3).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 2.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
+
+    _fadeAnimation = Tween<double>(begin: 0.5, end: 0.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
     );
 
     if (widget.isScanning) {
-      _controller.repeat(reverse: true);
+      _controller.repeat();
     }
   }
 
   @override
-  void didUpdateWidget(_PulsingIcon oldWidget) {
+  void didUpdateWidget(_RadarRippleIcon oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isScanning && !_controller.isAnimating) {
-      _controller.repeat(reverse: true);
+      _controller.repeat();
     } else if (!widget.isScanning && _controller.isAnimating) {
       _controller.stop();
       _controller.value = 0;
@@ -218,17 +231,39 @@ class _PulsingIconState extends State<_PulsingIcon>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _animation,
-      builder: (context, child) {
-        return Transform.scale(
-          scale: widget.isScanning ? _animation.value : 1.0,
-          child: Container(
+    return SizedBox(
+      width: 56,
+      height: 56,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Ripple effect (radio waves)
+          if (widget.isScanning)
+            AnimatedBuilder(
+              animation: _controller,
+              builder: (context, child) {
+                return Container(
+                  width: 56 * _scaleAnimation.value,
+                  height: 56 * _scaleAnimation.value,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: widget.colorScheme.primary
+                          .withValues(alpha: _fadeAnimation.value),
+                      width: 2,
+                    ),
+                  ),
+                );
+              },
+            ),
+
+          // Main icon container
+          Container(
             width: 56,
             height: 56,
             decoration: BoxDecoration(
               color: widget.isScanning
-                  ? widget.colorScheme.primary.withOpacity(0.15)
+                  ? widget.colorScheme.primary.withValues(alpha: 0.15)
                   : widget.colorScheme.surfaceVariant,
               shape: BoxShape.circle,
             ),
@@ -242,25 +277,25 @@ class _PulsingIconState extends State<_PulsingIcon>
                   : widget.colorScheme.onSurfaceVariant,
             ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 }
 
-// Animated button with press effect
+// Animated button with gradient, haptic feedback, and press effect
 class _AnimatedButton extends StatefulWidget {
   final VoidCallback? onPressed;
   final IconData icon;
   final String label;
-  final Color color;
+  final List<Color> gradientColors;
   final bool isEnabled;
 
   const _AnimatedButton({
     required this.onPressed,
     required this.icon,
     required this.label,
-    required this.color,
+    required this.gradientColors,
     required this.isEnabled,
   });
 
@@ -294,6 +329,8 @@ class _AnimatedButtonState extends State<_AnimatedButton>
   void _handleTapDown(TapDownDetails details) {
     if (widget.isEnabled) {
       _controller.forward();
+      // Haptic feedback for physical click sensation
+      HapticFeedback.lightImpact();
     }
   }
 
@@ -311,6 +348,8 @@ class _AnimatedButtonState extends State<_AnimatedButton>
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return GestureDetector(
       onTapDown: _handleTapDown,
       onTapUp: _handleTapUp,
@@ -323,36 +362,67 @@ class _AnimatedButtonState extends State<_AnimatedButton>
             child: child,
           );
         },
-        child: ElevatedButton(
-          onPressed: widget.onPressed,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: widget.isEnabled
-                ? widget.color
-                : Theme.of(context).colorScheme.surfaceVariant,
-            foregroundColor: widget.isEnabled
-                ? Colors.white
-                : Theme.of(context).colorScheme.onSurfaceVariant,
-            padding: const EdgeInsets.symmetric(vertical: 18),
-            elevation: widget.isEnabled ? 2 : 0,
-            shadowColor: widget.color.withOpacity(0.4),
-            shape: RoundedRectangleBorder(
+        child: Opacity(
+          opacity: widget.isEnabled ? 1.0 : 0.5, // Consistent disabled state
+          child: Container(
+            height: 54,
+            decoration: BoxDecoration(
+              gradient: widget.isEnabled
+                  ? LinearGradient(
+                colors: widget.gradientColors,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              )
+                  : LinearGradient(
+                colors: [
+                  theme.colorScheme.surfaceVariant,
+                  theme.colorScheme.surfaceVariant,
+                ],
+              ),
               borderRadius: BorderRadius.circular(16),
+              boxShadow: widget.isEnabled
+                  ? [
+                BoxShadow(
+                  color: widget.gradientColors[0].withValues(alpha: 0.3),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ]
+                  : null,
             ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(widget.icon, size: 24),
-              const SizedBox(width: 8),
-              Text(
-                widget.label,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.5,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: widget.onPressed,
+                borderRadius: BorderRadius.circular(16),
+                child: Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        widget.icon,
+                        size: 24,
+                        color: widget.isEnabled
+                            ? Colors.white
+                            : theme.colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        widget.label,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
+                          color: widget.isEnabled
+                              ? Colors.white
+                              : theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),
