@@ -1,4 +1,4 @@
-// Lecturer Dashboard Screen - Modernized
+// Lecturer Dashboard Screen - Sky Blue Theme
 
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
@@ -79,27 +79,27 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
     }
   }
 
-  // Helper to generate consistent pastel colors based on Course ID
+  // Helper to generate consistent pastel colors based on Course ID - CHANGED TO SKY BLUE PALETTE
   Color _getCourseColor(int id) {
     final colors = [
+      Colors.lightBlue.shade100,
+      Colors.cyan.shade100,
       Colors.blue.shade100,
-      Colors.orange.shade100,
-      Colors.purple.shade100,
       Colors.teal.shade100,
-      Colors.pink.shade100,
       Colors.indigo.shade100,
+      Colors.blueGrey.shade100,
     ];
     return colors[id % colors.length];
   }
 
   Color _getCourseTextColor(int id) {
     final colors = [
+      Colors.lightBlue.shade900,
+      Colors.cyan.shade900,
       Colors.blue.shade900,
-      Colors.orange.shade900,
-      Colors.purple.shade900,
       Colors.teal.shade900,
-      Colors.pink.shade900,
       Colors.indigo.shade900,
+      Colors.blueGrey.shade900,
     ];
     return colors[id % colors.length];
   }
@@ -159,7 +159,7 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
     );
   }
 
-  // Hero Welcome Card with Glassmorphism and Pattern Background
+  // Hero Welcome Card with Glassmorphism and Pattern Background - CHANGED TO SKY BLUE
   Widget _buildHeroWelcomeCard(ThemeData theme, TextTheme textTheme) {
     return Container(
       width: double.infinity,
@@ -168,15 +168,15 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Colors.deepPurple,
-            Colors.deepPurple.shade700,
-            Colors.purple.shade600,
+            Colors.lightBlue.shade800,
+            Colors.lightBlue.shade600,
+            Colors.cyan.shade500,
           ],
         ),
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.deepPurple.withValues(alpha: 0.4),
+            color: Colors.lightBlue.withValues(alpha: 0.4),
             blurRadius: 20,
             offset: const Offset(0, 8),
           ),
@@ -286,7 +286,7 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
     );
   }
 
-  // Enhanced Empty State
+  // Enhanced Empty State - CHANGED TO SKY BLUE
   Widget _buildEmptyState(ThemeData theme) {
     return Center(
       child: Padding(
@@ -297,7 +297,7 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
             Icon(
               Icons.auto_stories_rounded,
               size: 140,
-              color: Colors.deepPurple.withValues(alpha: 0.15),
+              color: Colors.lightBlue.withValues(alpha: 0.15),
             ),
             const SizedBox(height: 24),
             Text(
