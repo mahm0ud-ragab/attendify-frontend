@@ -1,4 +1,4 @@
-// Course Detail Screen
+// Course Detail Screen - Modernized
 
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
@@ -20,19 +20,36 @@ class CourseDetailScreen extends StatefulWidget {
   State<CourseDetailScreen> createState() => _CourseDetailScreenState();
 }
 
-class _CourseDetailScreenState extends State<CourseDetailScreen> {
+class _CourseDetailScreenState extends State<CourseDetailScreen> with SingleTickerProviderStateMixin {
   final _apiService = ApiService();
   final _bleService = BLEService();
+
   Map<String, dynamic>? _courseData;
   bool _isLoading = true;
+
+  // Broadcasting State
   bool _isBroadcasting = false;
   Map<String, dynamic>? _beaconData;
   int? _sessionId;
+
+  // Animation for the "Live" indicator
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
 
   @override
   void initState() {
     super.initState();
     _loadCourseDetails();
+
+    // Setup pulse animation for the broadcasting state
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 0.5).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
   }
 
   @override
@@ -40,12 +57,14 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
     if (_isBroadcasting) {
       _bleService.stopBroadcasting();
     }
+    _pulseController.dispose();
     super.dispose();
   }
 
+  // --- Logic Section (Kept exactly as your original) ---
+
   Future<void> _startBroadcasting() async {
     if (_beaconData == null) return;
-
     try {
       await _bleService.startBroadcasting(
         major: _beaconData!['major'],
@@ -53,101 +72,62 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
       );
       print('Started broadcasting: ${_beaconData}');
     } catch (e) {
-      print('Broadcasting error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to start broadcasting: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red),
       );
     }
   }
 
   Future<void> _stopBroadcasting() async {
-    if (_sessionId == null) return; // Safety check
-
-    // Call API to end session
+    if (_sessionId == null) return;
     final result = await _apiService.endAttendanceSession(sessionId: _sessionId!);
 
     if (!mounted) return;
 
     if (result['success']) {
-      // Stop broadcasting locally
       await _bleService.stopBroadcasting();
       setState(() {
         _isBroadcasting = false;
         _beaconData = null;
         _sessionId = null;
       });
-
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result['message']),
-          backgroundColor: Colors.orange,
-        ),
+        SnackBar(content: Text(result['message']), backgroundColor: Colors.orange),
       );
     } else {
-      // Show error if ending session failed
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result['message']),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(result['message']), backgroundColor: Colors.red),
       );
     }
   }
 
   Future<void> _generateBeacon() async {
-    print('Generate beacon tapped');
-
-    // Check permissions
     final hasPermission = await _bleService.checkPermissions();
     if (!hasPermission) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Bluetooth and Location permissions are required'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Permissions required'), backgroundColor: Colors.red));
       return;
     }
 
-    // Check if Bluetooth is enabled
     final isBluetoothOn = await _bleService.isBluetoothEnabled();
     if (!isBluetoothOn) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enable Bluetooth'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enable Bluetooth'), backgroundColor: Colors.red));
       return;
     }
 
-    // Show loading
     if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(),
-      ),
+      builder: (context) => const Center(child: CircularProgressIndicator()),
     );
 
-    print('Creating attendance session for course ${widget.courseId}');
-
-    // Create session on backend
-    final result = await _apiService.createAttendanceSession(
-      courseId: widget.courseId,
-    );
-
-    print('Backend response: $result');
+    final result = await _apiService.createAttendanceSession(courseId: widget.courseId);
 
     if (!mounted) return;
-    Navigator.pop(context); // Close loading
+    Navigator.pop(context);
 
     if (result['success']) {
       setState(() {
@@ -155,38 +135,18 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
         _beaconData = result['beacon_data'];
         _isBroadcasting = true;
       });
-
-      print('Session created successfully: $_beaconData');
-
-      // Start broadcasting
       await _startBroadcasting();
-
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Attendance session started successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Session Active'), backgroundColor: Colors.green));
     } else {
-      print('Failed to create session: ${result['message']}');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result['message']),
-          backgroundColor: Colors.red,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['message']), backgroundColor: Colors.red));
     }
   }
 
   Future<void> _loadCourseDetails() async {
-    setState(() {
-      _isLoading = true;
-    });
-
+    setState(() => _isLoading = true);
     final result = await _apiService.getCourseDetails(widget.courseId);
-
     setState(() {
       if (result['success']) {
         _courseData = result['course'];
@@ -195,311 +155,397 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
     });
   }
 
+  // Helper to match Dashboard colors
+  Color _getCourseColor(int id) {
+    final colors = [
+      Colors.blue.shade100, Colors.orange.shade100, Colors.purple.shade100,
+      Colors.teal.shade100, Colors.pink.shade100, Colors.indigo.shade100,
+    ];
+    return colors[id % colors.length];
+  }
+
+  Color _getCourseTextColor(int id) {
+    final colors = [
+      Colors.blue.shade900, Colors.orange.shade900, Colors.purple.shade900,
+      Colors.teal.shade900, Colors.pink.shade900, Colors.indigo.shade900,
+    ];
+    return colors[id % colors.length];
+  }
+
+  // --- UI Section ---
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    // Determine header colors based on Course ID
+    final headerColor = _getCourseColor(widget.courseId);
+    final headerTextColor = _getCourseTextColor(widget.courseId);
+
     return Scaffold(
+      backgroundColor: Colors.grey[50], // Light background
       appBar: AppBar(
-        title: Text(widget.courseTitle),
+        title: const Text('Course Details'),
         centerTitle: true,
+        backgroundColor: Colors.white,
+        elevation: 0,
+        foregroundColor: Colors.black87,
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _courseData == null
-          ? const Center(
-        child: Text('Failed to load course details'),
-      )
+          ? const Center(child: Text('Failed to load course details'))
           : RefreshIndicator(
         onRefresh: _loadCourseDetails,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(20.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Course Info Card
-              Card(
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(20.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Theme.of(context)
-                                  .primaryColor
-                                  .withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Icon(
-                              Icons.book,
-                              color: Theme.of(context).primaryColor,
-                              size: 30,
-                            ),
-                          ),
-                          const SizedBox(width: 15),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment:
-                              CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _courseData!['title'],
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 5),
-                                if (_courseData!['lecturer'] != null)
-                                  Text(
-                                    'Dr. ${_courseData!['lecturer']['name']}',
-                                    style: TextStyle(
-                                      color: Colors.grey[600],
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 15),
-                      const Divider(),
-                      const SizedBox(height: 10),
-                      Text(
-                        'Description',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.grey[800],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _courseData!['description'] ??
-                            'No description available',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                          height: 1.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
+              // 1. Modern Header Card
+              _buildCourseHeader(headerColor, headerTextColor),
+              const SizedBox(height: 24),
 
-              // Lecturer View: Generate/Stop Beacon Button
+              // 2. Broadcasting Controls (Only for Lecturer)
               if (widget.isLecturer) ...[
-                if (_isBroadcasting) ...[
-                  // Active session card
-                  Card(
-                    color: Colors.green.shade50,
-                    elevation: 2,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                width: 12,
-                                height: 12,
-                                decoration: const BoxDecoration(
-                                  color: Colors.green,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              const Expanded(
-                                child: Text(
-                                  'Broadcasting Attendance Beacon',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.green,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          if (_beaconData != null) ...[
-                            Text(
-                              'Major: ${_beaconData!['major']} | Minor: ${_beaconData!['minor']}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[700],
-                              ),
-                            ),
-                            const SizedBox(height: 5),
-                            Text(
-                              'UUID: ${_beaconData!['uuid']}',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                            const SizedBox(height: 15),
-                          ],
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: _stopBroadcasting,
-                              icon: const Icon(Icons.stop),
-                              label: const Text('End Session'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 12,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ] else ...[
-                  // ✅ Generate beacon button with WHITE Bluetooth icon
-                  SizedBox(
-                    width: double.infinity,
-                    height: 55,
-                    child: ElevatedButton.icon(
-                      onPressed: _generateBeacon,
-                      icon: const Icon(
-                        Icons.bluetooth,
-                        size: 28,
-                        color: Colors.white, // ✅ WHITE COLOR
-                      ),
-                      label: const Text(
-                        'Generate Attendance Beacon',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurple,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 20),
+                _buildBroadcastingSection(),
+                const SizedBox(height: 32),
               ],
 
-              // Enrolled Students Section
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Enrolled Students',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+              // 3. Student List Section
+              _buildStudentListSection(theme),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCourseHeader(Color bgColor, Color textColor) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: bgColor, // Pastel color
+        borderRadius: BorderRadius.circular(24),
+      ),
+      child: Stack(
+        children: [
+          // Decorative circle
+          Positioned(
+            right: -20,
+            top: -20,
+            child: Container(
+              width: 100, height: 100,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(Icons.class_rounded, color: textColor, size: 28),
                     ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context)
-                          .primaryColor
-                          .withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${_courseData!['enrolled_count']} students',
-                      style: TextStyle(
-                        color: Theme.of(context).primaryColor,
-                        fontWeight: FontWeight.bold,
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Text(
+                        _courseData!['title'],
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: textColor,
+                          height: 1.2,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 15),
+                  ],
+                ),
+                const SizedBox(height: 16),
 
-              // Students List
-              if (_courseData!['enrolled_students'].isEmpty)
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(40.0),
-                    child: Column(
+                // Description with better typography
+                Text(
+                  _courseData!['description'] ?? 'No description available.',
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: textColor.withValues(alpha: 0.8),
+                    height: 1.5,
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+                // Lecturer badge
+                if (_courseData!['lecturer'] != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          Icons.people_outline,
-                          size: 60,
-                          color: Colors.grey[400],
-                        ),
-                        const SizedBox(height: 15),
+                        Icon(Icons.person_rounded, size: 16, color: textColor),
+                        const SizedBox(width: 6),
                         Text(
-                          'No students enrolled yet',
+                          'Dr. ${_courseData!['lecturer']['name']}',
                           style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w600,
+                            color: textColor,
+                            fontSize: 13,
                           ),
                         ),
                       ],
                     ),
                   ),
-                )
-              else
-                ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: _courseData!['enrolled_students'].length,
-                  itemBuilder: (context, index) {
-                    final student =
-                    _courseData!['enrolled_students'][index];
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Theme.of(context)
-                              .primaryColor
-                              .withOpacity(0.1),
-                          child: Text(
-                            student['name'][0].toUpperCase(),
-                            style: TextStyle(
-                              color: Theme.of(context).primaryColor,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                        title: Text(
-                          student['name'],
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        subtitle: Text(student['email']),
-                      ),
-                    );
-                  },
-                ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildBroadcastingSection() {
+    if (_isBroadcasting) {
+      // ACTIVE SESSION CARD
+      return AnimatedBuilder(
+        animation: _pulseAnimation,
+        builder: (context, child) {
+          return Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: Colors.green.shade200, width: 1),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.green.withValues(alpha: 0.2 * _pulseAnimation.value),
+                  blurRadius: 20 * _pulseAnimation.value,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 12, height: 12,
+                      decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'SESSION LIVE',
+                      style: TextStyle(
+                        color: Colors.green,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Broadcasting Beacon',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Your device is currently acting as a beacon.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                ),
+                const SizedBox(height: 20),
+
+                // Technical Data Box
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      _buildTechRow('Major', '${_beaconData?['major']}'),
+                      const Divider(height: 16),
+                      _buildTechRow('Minor', '${_beaconData?['minor']}'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Stop Button
+                SizedBox(
+                  width: double.infinity,
+                  height: 50,
+                  child: ElevatedButton.icon(
+                    onPressed: _stopBroadcasting,
+                    icon: const Icon(Icons.stop_circle_outlined, color: Colors.white),
+                    label: const Text('End Session'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    } else {
+      // GENERATE BUTTON
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Attendance Actions',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 60,
+            child: FilledButton.icon(
+              onPressed: _generateBeacon,
+              icon: const Icon(Icons.bluetooth_audio, size: 24),
+              label: const Text(
+                'Generate Attendance Beacon',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.deepPurple,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Tap to turn your phone into a beacon for students to scan.',
+            style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+          ),
+        ],
+      );
+    }
+  }
+
+  Widget _buildTechRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, fontFamily: 'monospace')),
+      ],
+    );
+  }
+
+  Widget _buildStudentListSection(ThemeData theme) {
+    final students = _courseData!['enrolled_students'] as List;
+
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Enrolled Students',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '${students.length} Total',
+                style: TextStyle(color: Colors.blue.shade800, fontWeight: FontWeight.bold, fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        if (students.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(30),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Column(
+              children: [
+                Icon(Icons.people_outline, size: 48, color: Colors.grey[300]),
+                const SizedBox(height: 8),
+                Text('No students enrolled', style: TextStyle(color: Colors.grey[400])),
+              ],
+            ),
+          )
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: students.length,
+            separatorBuilder: (c, i) => const SizedBox(height: 10),
+            itemBuilder: (context, index) {
+              final student = students[index];
+              final initial = student['name'][0].toUpperCase();
+
+              return Container(
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.grey.shade100),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.02),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.deepPurple.shade50,
+                    child: Text(
+                      initial,
+                      style: TextStyle(color: Colors.deepPurple.shade700, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  title: Text(
+                    student['name'],
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(
+                    student['email'],
+                    style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
     );
   }
 }

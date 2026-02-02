@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../models/beacon.dart';
+import '../../services/api_service.dart';
 import '../../services/bluetooth_service.dart';
+import '../../services/ble_service.dart';
 import '../../services/permission_service.dart';
 import '../../widgets/beacon_card.dart';
 import '../../widgets/control_panel.dart';
@@ -23,6 +25,7 @@ class BeaconScannerScreen extends StatefulWidget {
 class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
   final _bluetoothService = BluetoothService();
   final _permissionService = PermissionService();
+  final _apiService = ApiService();
 
   int get courseId => widget.courseId;
   String get courseTitle => widget.courseTitle;
@@ -117,6 +120,57 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
     setState(() {
       _statusMessage = 'Scan stopped';
     });
+  }
+
+  Future<void> _handleMarkAttendance(Beacon beacon) async {
+    // Stop scanning to save battery
+    await _stopScan();
+    // Show loading (optional, since the button has a loader too,
+    // but blocking the screen is safer for exams)
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(child: CircularProgressIndicator()),
+    );
+    final result = await _apiService.markAttendance(
+      courseId: widget.courseId,
+      beaconUuid: beacon.uuid,
+      beaconMajor: beacon.major,
+      beaconMinor: beacon.minor,
+      rssi: beacon.rssi,
+      distance: beacon.accuracy,
+    );
+    if (!mounted) return;
+    Navigator.pop(context); // Close global loader
+    if (result['success']) {
+      // Success Dialog
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          icon: const Icon(Icons.check_circle, color: Colors.green, size: 48),
+          title: const Text('Attendance Marked!'),
+          content: Text(result['message']),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.pop(context); // Return to Dashboard
+              },
+              child: const Text('Done'),
+            )
+          ],
+        ),
+      );
+    } else {
+      // Error SnackBar
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result['message']),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _showPermissionDialog() {
@@ -324,18 +378,25 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
                 ),
               )
             else
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                sliver: SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                        (context, index) {
-                      return BeaconCard(
-                        beacon: _beacons[index],
+              SliverList(
+                delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                    final beacon = _beacons[index];
+
+                    // Check if this is OUR university beacon
+                    final isUniBeacon = beacon.uuid.toLowerCase() == BLEService.beaconUUID.toLowerCase();
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      child: BeaconCard(
+                        beacon: beacon,
                         index: index + 1,
-                      );
-                    },
-                    childCount: _beacons.length,
-                  ),
+                        isUniversityBeacon: isUniBeacon,
+                        onMarkAttendance: () => _handleMarkAttendance(beacon),
+                        isMarking: false,
+                      ),
+                    );
+                  },
+                  childCount: _beacons.length,
                 ),
               ),
           ],

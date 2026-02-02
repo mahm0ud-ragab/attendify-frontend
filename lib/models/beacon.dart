@@ -27,6 +27,15 @@ class Beacon {
     return 'Far (>10m)';
   }
 
+  /// Returns an estimated distance in meters as a double, derived from RSSI.
+  /// This is what gets sent to the backend via markAttendance().
+  double get accuracy {
+    if (rssi > -60) return 0.5;
+    if (rssi > -70) return 2.0;
+    if (rssi > -80) return 6.0;
+    return 15.0;
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'uuid': uuid,
