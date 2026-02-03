@@ -9,6 +9,14 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # 👇 UPDATED VERSION TO FIX ERROR
+  intl: ^0.20.2
+
+  # Icon Generator
+  flutter_launcher_icons: ^0.13.1
 
   # UI & Icons
   cupertino_icons: ^1.0.2
@@ -18,35 +26,49 @@ dependencies:
 
   # Local Storage
   shared_preferences: ^2.2.2
+  qr_flutter: ^4.1.0
 
-  # Bluetooth & Beacon Scanning
-  flutter_blue_plus: ^1.32.12
-  # Permissions
-  permission_handler: ^11.3.1
-  # iBeacon
-  flutter_beacon: ^0.5.1
-  #secure storage
+  # For Students to SCAN QR codes (Modern & fast)
+  mobile_scanner: ^5.0.0
+
+  # For Location (Anti-Spoofing)
+  geolocator: ^10.1.0
+
+
+  # Bluetooth & Beacons
+  flutter_beacon:
+    path: C:/Users/ASH/AppData/Local/Pub/Cache/hosted/pub.dev/flutter_beacon-0.5.1
+  flutter_blue_plus: ^1.31.0        # Scanning
+  flutter_ble_peripheral: ^2.0.0    # Broadcasting
+
+  permission_handler: ^11.1.0
+
+  # Secure Storage
   flutter_secure_storage: ^9.0.0
 
-  device_info_plus: ^10.0.0  # For Android version detection
-
+  device_info_plus: ^10.0.0   # For Android version detection
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
 
+# ✅ FLUTTER CONFIGURATION
 flutter:
   uses-material-design: true
 
   # Assets (Logo, Images, etc.)
   assets:
     - assets/images/
+    # If you access the icon directly in the app code, add this too:
+    # - assets/icons/
 
-  # Fonts (Optional - Uncomment if you want custom fonts)
-  # fonts:
-  #   - family: Poppins
-  #     fonts:
-  #       - asset: assets/fonts/Poppins-Regular.ttf
-  #       - asset: assets/fonts/Poppins-Bold.ttf
-  #         weight: 700
+# ✅ LAUNCHER ICONS CONFIGURATION
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "assets/icons/app_icon.png"
+  min_sdk_android: 21
+  remove_alpha_ios: true
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icons/app_icon.png"
