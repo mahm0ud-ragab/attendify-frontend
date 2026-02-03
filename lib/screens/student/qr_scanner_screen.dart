@@ -1,83 +1,114 @@
-// Student Dashboard Screen - Sky Blue Theme with Full Glassmorphism
+// QR Scanner Screen - Sky Blue Theme (Student Side)
 
-import 'package:flutter/material.dart';
 import 'dart:math' as math;
-import '../../services/api_service.dart';
-import '../../services/storage_service.dart';
-import 'beacon_scanner_screen.dart';
-import '../common/settings_screen.dart';
-import 'qr_scanner_screen.dart';
+import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import '../../services/localization_service.dart';
+import 'dart:ui' as ui; // Import as 'ui' to avoid conflicts
 
-class StudentDashboard extends StatefulWidget {
-  const StudentDashboard({super.key});
+class QrScannerScreen extends StatefulWidget {
+  final String courseId;
+  final String courseTitle;
+
+  const QrScannerScreen({
+    super.key,
+    required this.courseId,
+    required this.courseTitle,
+  });
 
   @override
-  State<StudentDashboard> createState() => _StudentDashboardState();
+  State<QrScannerScreen> createState() => _QrScannerScreenState();
 }
 
-class _StudentDashboardState extends State<StudentDashboard> {
-  final _apiService = ApiService();
-  final _storageService = StorageService();
-  String _userName = '';
-  List<dynamic> _courses = [];
-  bool _isLoading = true;
+class _QrScannerScreenState extends State<QrScannerScreen>
+    with SingleTickerProviderStateMixin {
+  // ── Scan state ───────────────────────────────────────────────────────────
+  bool _isProcessing = false;
+  bool _isSuccess = false;
+
+  // ── Animation controller for the scan-frame pulse ───────────────────────
+  late final AnimationController _pulseController;
 
   @override
   void initState() {
     super.initState();
-    _loadData();
-  }
-
-  Future<void> _loadData() async {
-    // Load user name
-    final name = await _storageService.getUserName();
-    // Load enrolled courses
-    final result = await _apiService.getEnrolledCourses();
-
-    setState(() {
-      _userName = name ?? 'Student';
-      if (result['success']) {
-        _courses = result['courses'] ?? [];
-      }
-      _isLoading = false;
-    });
-  }
-
-
-  // Helper to generate consistent colors based on Course ID - SKY BLUE PALETTE
-  Color _getCourseColor(int id) {
-    final colors = [
-      Colors.lightBlue.shade100,
-      Colors.cyan.shade100,
-      Colors.blue.shade100,
-      Colors.teal.shade100,
-      Colors.indigo.shade100,
-      Colors.blueGrey.shade100,
-    ];
-    return colors[id % colors.length];
-  }
-
-  Color _getCourseTextColor(int id) {
-    final colors = [
-      Colors.lightBlue.shade900,
-      Colors.cyan.shade900,
-      Colors.blue.shade900,
-      Colors.teal.shade900,
-      Colors.indigo.shade900,
-      Colors.blueGrey.shade900,
-    ];
-    return colors[id % colors.length];
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    )..repeat();
   }
 
   @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  // ── Core scan logic (unchanged) ──────────────────────────────────────────
+  void _onDetect(BarcodeCapture capture) async {
+    if (_isProcessing) return;
+    final List<Barcode> barcodes = capture.barcodes;
+
+    if (barcodes.isNotEmpty && barcodes.first.rawValue != null) {
+      setState(() {
+        _isProcessing = true;
+      });
+      final String scannedCode = barcodes.first.rawValue!;
+      try {
+        // 1. Get Location (Anti-Spoofing)
+        Position position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high);
+
+        // 2. Get Device ID (Anti-Buddy Punching)
+        // final deviceInfo = DeviceInfoPlugin();
+        // final androidInfo = await deviceInfo.androidInfo;
+        // String deviceId = androidInfo.id;
+        String deviceId = "mock_device_id_123";
+
+        // 3. Send payload to Backend (Mocking it for now)
+        debugPrint("PAYLOAD TO SEND:");
+        debugPrint("Token: $scannedCode");
+        debugPrint("Lat: ${position.latitude}, Long: ${position.longitude}");
+        debugPrint("DeviceID: $deviceId");
+
+        if (mounted) {
+          // Show success overlay, then pop after a short delay
+          setState(() {
+            _isSuccess = true;
+          });
+          await Future.delayed(const Duration(milliseconds: 1800));
+          if (mounted) Navigator.pop(context);
+        }
+      } catch (e) {
+        debugPrint("Error: $e");
+        if (mounted) {
+          setState(() => _isProcessing = false); // Allow retry
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("${context.loc?.error ?? 'Error'}: $e"),
+              backgroundColor: Colors.red.shade700,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  // ── Build ────────────────────────────────────────────────────────────────
+  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
+    final textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
       body: Stack(
         children: [
-          // Layer 1: Sky Blue Gradient Background
+          // ── Layer 1: Sky Blue gradient (matches student dashboard) ────────
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -92,45 +123,53 @@ class _StudentDashboardState extends State<StudentDashboard> {
             ),
           ),
 
-          // Layer 2: Circle Pattern Overlay
+          // ── Layer 2: Decorative circle pattern ────────────────────────────
           Positioned.fill(
             child: CustomPaint(
               painter: _CirclePatternPainter(),
             ),
           ),
 
-          // Layer 3: Content
+          // ── Layer 3: Content ──────────────────────────────────────────────
           SafeArea(
             child: Column(
               children: [
-                // Custom Header (replaces AppBar)
+                // Custom header
                 _buildCustomHeader(textTheme),
 
-                // Scrollable Content
+                // Camera viewport + overlays
                 Expanded(
-                  child: _isLoading
-                      ? const Center(
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                    ),
-                  )
-                      : RefreshIndicator(
-                    onRefresh: _loadData,
-                    child: SingleChildScrollView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(20.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Glassmorphic Welcome Card
-                          _buildGlassmorphicWelcomeCard(theme, textTheme),
-                          const SizedBox(height: 32),
-
-                          // Glassmorphic Courses Card
-                          _buildCoursesGlassCard(theme, textTheme),
-                        ],
+                  child: Stack(
+                    children: [
+                      // Live camera feed
+                      ClipRRect(
+                        borderRadius: const BorderRadius.only(
+                          bottomLeft: Radius.circular(24),
+                          bottomRight: Radius.circular(24),
+                        ),
+                        child: MobileScanner(onDetect: _onDetect),
                       ),
-                    ),
+
+                      // Animated scan frame (corner brackets + pulsing glow)
+                      Center(
+                        child: _buildScanFrame(),
+                      ),
+
+                      // Bottom instruction card (glass)
+                      Positioned(
+                        left: 20,
+                        right: 20,
+                        bottom: 32,
+                        child: _buildInstructionCard(textTheme),
+                      ),
+
+                      // Processing overlay
+                      if (_isProcessing && !_isSuccess)
+                        _buildProcessingOverlay(textTheme),
+
+                      // Success overlay
+                      if (_isSuccess) _buildSuccessOverlay(textTheme),
+                    ],
                   ),
                 ),
               ],
@@ -138,43 +177,18 @@ class _StudentDashboardState extends State<StudentDashboard> {
           ),
         ],
       ),
-
-      // FAB — quick-launch QR scanner from anywhere on the dashboard
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.blue,
-        foregroundColor: Colors.white,
-        tooltip: 'Scan Attendance',
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const QrScannerScreen(
-                courseId: "0",
-                courseTitle: "Scan Attendance",
-              ),
-            ),
-          );
-        },
-        child: const Icon(Icons.qr_code_scanner),
-      ),
     );
   }
 
-  // Custom Header (replaces AppBar)
+  // ── Custom Header ─────────────────────────────────────────────────────────
   Widget _buildCustomHeader(TextTheme textTheme) {
+    final loc = context.loc;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            'Student Dashboard',
-            style: textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-              letterSpacing: -0.3,
-            ),
-          ),
+          // Back button
           Container(
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.15),
@@ -185,32 +199,70 @@ class _StudentDashboardState extends State<StudentDashboard> {
               ),
             ),
             child: IconButton(
-              icon: const Icon(Icons.settings_rounded),
+              icon: const Icon(Icons.arrow_back_ios_new_rounded),
               color: Colors.white,
-              tooltip: 'Settings',
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const SettingsScreen(isLecturer: false),
-                  ),
-                );
-              },
+              onPressed: () => Navigator.pop(context),
+              tooltip: 'Back',
             ),
           ),
+
+          // Title
+          Text(
+            loc?.qrScannerTitle ?? 'QR Scanner',
+            style: textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              letterSpacing: -0.3,
+            ),
+          ),
+
+          // Spacer to keep title centred
+          const SizedBox(width: 48),
         ],
       ),
     );
   }
 
-  // Glassmorphic Welcome Card
-  Widget _buildGlassmorphicWelcomeCard(ThemeData theme, TextTheme textTheme) {
+  // ── Animated Scan Frame ───────────────────────────────────────────────────
+  Widget _buildScanFrame() {
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (context, child) {
+        // Opacity pulses between 0.5 and 1.0
+        final opacity = 0.5 + (math.sin(_pulseController.value * math.pi) * 0.5);
+        // Glow size breathes gently
+        final glowSpread = 4.0 + (math.sin(_pulseController.value * math.pi) * 6.0);
+
+        return Container(
+          width: 240,
+          height: 240,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.lightBlue.shade300.withValues(alpha: opacity * 0.5),
+                blurRadius: 20,
+                spreadRadius: glowSpread,
+              ),
+            ],
+          ),
+          child: CustomPaint(
+            painter: _ScanFramePainter(opacity: opacity),
+            size: const Size(240, 240),
+          ),
+        );
+      },
+    );
+  }
+
+  // ── Bottom Instruction Card (glass) ──────────────────────────────────────
+  Widget _buildInstructionCard(TextTheme textTheme) {
+    final loc = context.loc;
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.95),
-        borderRadius: BorderRadius.circular(24),
+        color: Colors.white.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: Colors.white.withValues(alpha: 0.5),
           width: 1,
@@ -223,60 +275,45 @@ class _StudentDashboardState extends State<StudentDashboard> {
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Welcome Text
-          Text(
-            'Welcome back,',
-            style: textTheme.bodyLarge?.copyWith(
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w400,
-            ),
-          ),
-          const SizedBox(height: 6),
-
-          // Name
-          Text(
-            _userName,
-            style: textTheme.headlineMedium?.copyWith(
-              color: Colors.blue.shade900,
-              fontWeight: FontWeight.bold,
-              letterSpacing: -0.5,
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          // Role Badge
+          // Icon badge
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 14,
-              vertical: 7,
-            ),
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
               color: Colors.blue.shade50,
-              border: Border.all(
-                color: Colors.blue.shade300,
-                width: 1.5,
-              ),
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(12),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+            child: Icon(
+              Icons.qr_code_scanner_rounded,
+              color: Colors.blue.shade700,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 14),
+
+          // Text
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  Icons.school_rounded,
-                  size: 16,
-                  color: Colors.blue.shade700,
-                ),
-                const SizedBox(width: 6),
                 Text(
-                  'Student',
-                  style: textTheme.labelMedium?.copyWith(
-                    color: Colors.blue.shade700,
+                  loc?.scannerInstruction ?? 'Point your camera at the QR code',
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: Colors.blue.shade900,
                     fontWeight: FontWeight.w600,
-                    letterSpacing: 0.5,
                   ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  widget.courseTitle,
+                  style: textTheme.bodySmall?.copyWith(
+                    color: Colors.grey[600],
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -286,279 +323,116 @@ class _StudentDashboardState extends State<StudentDashboard> {
     );
   }
 
-  // Glassmorphic Courses Card Container
-  Widget _buildCoursesGlassCard(ThemeData theme, TextTheme textTheme) {
+  // ── Processing Overlay ────────────────────────────────────────────────────
+  Widget _buildProcessingOverlay(TextTheme textTheme) {
+    final loc = context.loc;
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.95),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.5),
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        color: Colors.black.withValues(alpha: 0.6),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Section Header
-          _buildSectionHeader(textTheme),
-          const SizedBox(height: 20),
-
-          // Course List or Empty State
-          _courses.isEmpty ? _buildEmptyState(theme) : _buildCourseList(),
-        ],
-      ),
-    );
-  }
-
-  // Section Header
-  Widget _buildSectionHeader(TextTheme textTheme) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Text(
-          'My Courses',
-          style: textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-            letterSpacing: -0.3,
-            color: Colors.blue.shade900,
-          ),
-        ),
-        Text(
-          '${_courses.length} ${_courses.length == 1 ? 'course' : 'courses'}',
-          style: textTheme.bodyMedium?.copyWith(
-            color: Colors.grey[600],
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
-    );
-  }
-
-  // Enhanced Empty State - SKY BLUE
-  Widget _buildEmptyState(ThemeData theme) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 60.0),
-        child: Column(
-          children: [
-            // Large Icon with Opacity
-            Icon(
-              Icons.school_outlined,
-              size: 140,
-              color: Colors.blue.withValues(alpha: 0.15),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'No courses enrolled yet',
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: Colors.grey[700],
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Your enrolled courses will appear here',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: Colors.grey[500],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // Course List with Enhanced Cards
-  Widget _buildCourseList() {
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: _courses.length,
-      itemBuilder: (context, index) {
-        final course = _courses[index];
-        final courseId = course['id'] ?? index;
-        final courseColor = _getCourseColor(courseId);
-        final textColor = _getCourseTextColor(courseId);
-
-        return _buildCourseCard(
-          course: course,
-          courseColor: courseColor,
-          textColor: textColor,
-        );
-      },
-    );
-  }
-
-  // Enhanced Course Card with Glassmorphism
-  Widget _buildCourseCard({
-    required Map<String, dynamic> course,
-    required Color courseColor,
-    required Color textColor,
-  }) {
-    final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: Colors.grey.shade200,
-          width: 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => BeaconScannerScreen(
-                  courseId: course['id'],
-                  courseTitle: course['title'] ?? 'Unknown Course',
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),   // ✅ fixed: added ui. prefix
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.all(40),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.95),
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
                 ),
-              ),
-            );
-          },
-          borderRadius: BorderRadius.circular(20),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
+              ],
+            ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                // Header: Icon + Title
-                Row(
-                  children: [
-                    // Color-Coded Icon
-                    Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(
-                        color: courseColor,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        Icons.book_rounded,
-                        color: textColor,
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-
-                    // Title
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            course['title'] ?? 'Unknown Course',
-                            style: textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: -0.3,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    // Arrow
-                    Icon(
-                      Icons.arrow_forward_ios_rounded,
-                      size: 18,
-                      color: Colors.grey[400],
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 16),
-
-                // Description
-                if (course['description'] != null &&
-                    course['description'].toString().isNotEmpty) ...[
-                  Text(
-                    course['description'],
-                    style: textTheme.bodyMedium?.copyWith(
-                      color: Colors.grey[700],
-                      height: 1.5,
-                    ),
-                    maxLines: 3,
-                    overflow: TextOverflow.ellipsis,
+                // Spinner
+                SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 3.5,
+                    color: Colors.blue.shade600,
                   ),
-                  const SizedBox(height: 16),
-                ],
-
-                // Divider
-                Divider(
-                  color: Colors.grey[200],
-                  height: 1,
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 20),
+                Text(
+                  loc?.processing ?? 'Processing...',
+                  style: textTheme.titleMedium?.copyWith(
+                    color: Colors.blue.shade900,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
-                // Footer: Mark Attendance Badge
-                Row(
-                  children: [
-                    Icon(
-                      Icons.bluetooth_searching_rounded,
-                      size: 18,
-                      color: Colors.grey[600],
+  // ── Success Overlay ───────────────────────────────────────────────────────
+  Widget _buildSuccessOverlay(TextTheme textTheme) {
+    final loc = context.loc;
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+      ),
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+        child: Center(
+          child: Container(
+            padding: const EdgeInsets.all(44),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.97),
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Checkmark circle
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.green.shade300,
+                      width: 2.5,
                     ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Tap to scan and mark attendance',
-                      style: textTheme.bodySmall?.copyWith(
-                        color: Colors.grey[600],
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-
-                    const Spacer(),
-
-                    // Scan Badge
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: courseColor.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Scan',
-                            style: textTheme.labelMedium?.copyWith(
-                              color: textColor,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                  ),
+                  child: Icon(
+                    Icons.check_rounded,
+                    color: Colors.green.shade600,
+                    size: 44,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  loc?.attendanceMarked ?? 'Attendance Marked!',
+                  style: textTheme.titleLarge?.copyWith(
+                    color: Colors.green.shade800,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  widget.courseTitle,
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: Colors.grey[600],
+                  ),
                 ),
               ],
             ),
@@ -569,7 +443,73 @@ class _StudentDashboardState extends State<StudentDashboard> {
   }
 }
 
-// Custom Painter for Circle Pattern Background
+// ── Scan Frame Painter ───────────────────────────────────────────────────────
+/// Draws four corner-bracket L-shapes at the corners of the scan area.
+class _ScanFramePainter extends CustomPainter {
+  final double opacity;
+  const _ScanFramePainter({required this.opacity});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: opacity)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.5
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    const double cornerLen = 28; // length of each bracket arm
+    const double radius = 20.0; // corner rounding of the scan box
+    final w = size.width;
+    final h = size.height;
+
+    // ── Top-Left corner ─────────────────────────────────────────────────
+    canvas.drawPath(
+      Path()
+        ..moveTo(0, cornerLen)
+        ..lineTo(0, radius)
+        ..quadraticBezierTo(0, 0, radius, 0)       // ✅ fixed
+        ..lineTo(cornerLen, 0),
+      paint,
+    );
+
+    // ── Top-Right corner ────────────────────────────────────────────────
+    canvas.drawPath(
+      Path()
+        ..moveTo(w - cornerLen, 0)
+        ..lineTo(w - radius, 0)
+        ..quadraticBezierTo(w, 0, w, radius)       // ✅ fixed
+        ..lineTo(w, cornerLen),
+      paint,
+    );
+
+    // ── Bottom-Right corner ─────────────────────────────────────────────
+    canvas.drawPath(
+      Path()
+        ..moveTo(w, h - cornerLen)
+        ..lineTo(w, h - radius)
+        ..quadraticBezierTo(w, h, w - radius, h)   // ✅ fixed
+        ..lineTo(w - cornerLen, h),
+      paint,
+    );
+
+    // ── Bottom-Left corner ──────────────────────────────────────────────
+    canvas.drawPath(
+      Path()
+        ..moveTo(cornerLen, h)
+        ..lineTo(radius, h)
+        ..quadraticBezierTo(0, h, 0, h - radius)   // ✅ fixed
+        ..lineTo(0, h - cornerLen),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _ScanFramePainter oldDelegate) =>
+      oldDelegate.opacity != opacity;
+}
+
+// ── Circle Pattern Painter (identical to dashboards) ────────────────────────
 class _CirclePatternPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -577,26 +517,23 @@ class _CirclePatternPainter extends CustomPainter {
       ..color = Colors.white.withValues(alpha: 0.08)
       ..style = PaintingStyle.fill;
 
-    // Draw decorative circles
     canvas.drawCircle(
       Offset(size.width * 0.9, size.height * 0.2),
       60,
       paint,
     );
-
     canvas.drawCircle(
       Offset(size.width * 0.15, size.height * 0.8),
       45,
       paint,
     );
-
     canvas.drawCircle(
       Offset(size.width * 1.05, size.height * 0.85),
       80,
       paint,
     );
 
-    // Draw curved wave-like path
+    // Subtle wave stroke
     final wavePaint = Paint()
       ..color = Colors.white.withValues(alpha: 0.05)
       ..style = PaintingStyle.stroke
@@ -604,14 +541,12 @@ class _CirclePatternPainter extends CustomPainter {
 
     final path = Path();
     path.moveTo(0, size.height * 0.4);
-
     for (double i = 0; i <= size.width; i++) {
       path.lineTo(
         i,
         size.height * 0.4 + math.sin((i / size.width) * 2 * math.pi) * 20,
       );
     }
-
     canvas.drawPath(path, wavePaint);
   }
 
