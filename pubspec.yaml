@@ -36,8 +36,8 @@ dependencies:
 
 
   # Bluetooth & Beacons
-  flutter_beacon:
-    path: C:/Users/ASH/AppData/Local/Pub/Cache/hosted/pub.dev/flutter_beacon-0.5.1
+  flutter_beacon: ^0.5.1
+
   flutter_blue_plus: ^1.31.0        # Scanning
   flutter_ble_peripheral: ^2.0.0    # Broadcasting
 
