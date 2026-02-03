@@ -1,11 +1,12 @@
-// Lecturer Dashboard Screen - Sky Blue Theme
+// Lecturer Dashboard Screen - Royal Purple Theme
 
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import '../../services/api_service.dart';
 import '../../services/storage_service.dart';
-import '../auth/login_screen.dart';
 import '../student/course_detail_screen.dart';
+import '../common/settings_screen.dart';
+import 'qr_generator_screen.dart';
 
 class LecturerDashboard extends StatefulWidget {
   const LecturerDashboard({super.key});
@@ -44,62 +45,28 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
     });
   }
 
-  Future<void> _handleLogout() async {
-    // Show confirmation dialog
-    final shouldLogout = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
-    );
 
-    if (shouldLogout == true) {
-      await _apiService.logout();
-
-      if (!mounted) return;
-
-      // Navigate to login screen
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-            (route) => false,
-      );
-    }
-  }
-
-  // Helper to generate consistent pastel colors based on Course ID - CHANGED TO SKY BLUE PALETTE
+  // Warm & Royal color palette for lecturer courses
   Color _getCourseColor(int id) {
     final colors = [
-      Colors.lightBlue.shade100,
-      Colors.cyan.shade100,
-      Colors.blue.shade100,
-      Colors.teal.shade100,
-      Colors.indigo.shade100,
-      Colors.blueGrey.shade100,
+      Colors.orange.shade100,      // Warmth
+      Colors.purple.shade100,      // Theme match
+      Colors.pink.shade100,        // Vibrant contrast
+      Colors.indigo.shade100,      // Deep tone
+      Colors.teal.shade100,        // Cool accent
+      Colors.deepOrange.shade100,  // Extra warmth
     ];
     return colors[id % colors.length];
   }
 
   Color _getCourseTextColor(int id) {
     final colors = [
-      Colors.lightBlue.shade900,
-      Colors.cyan.shade900,
-      Colors.blue.shade900,
-      Colors.teal.shade900,
+      Colors.orange.shade900,
+      Colors.purple.shade900,
+      Colors.pink.shade900,
       Colors.indigo.shade900,
-      Colors.blueGrey.shade900,
+      Colors.teal.shade900,
+      Colors.deepOrange.shade900,
     ];
     return colors[id % colors.length];
   }
@@ -110,154 +77,228 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
     final textTheme = theme.textTheme;
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        title: Text(
-          'Lecturer Dashboard',
-          style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout_rounded),
-            onPressed: _handleLogout,
-            tooltip: 'Logout',
+      body: Stack(
+        children: [
+          // Layer 1: Gradient background
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.deepPurple.shade900,
+                  Colors.deepPurple.shade800,
+                  Colors.purple.shade700,
+                ],
+              ),
+            ),
+          ),
+
+          // Layer 2: Circle pattern overlay
+          Positioned.fill(
+            child: CustomPaint(
+              painter: _CirclePatternPainter(),
+            ),
+          ),
+
+          // Layer 3: Content
+          SafeArea(
+            child: Column(
+              children: [
+                // Custom header (replaces AppBar)
+                _buildCustomHeader(textTheme),
+
+                // Scrollable content
+                Expanded(
+                  child: _isLoading
+                      ? const Center(
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                    ),
+                  )
+                      : RefreshIndicator(
+                    onRefresh: _loadData,
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Hero Welcome Card (Glassmorphic)
+                          _buildGlassmorphicWelcomeCard(theme, textTheme),
+                          const SizedBox(height: 32),
+
+                          // Courses Section (White Glass Card)
+                          _buildCoursesGlassCard(theme, textTheme),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-        onRefresh: _loadData,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Hero Welcome Section with Glassmorphism
-              _buildHeroWelcomeCard(theme, textTheme),
-              const SizedBox(height: 32),
-
-              // Quick Actions (if needed in future)
-              // _buildQuickActions(theme),
-              // const SizedBox(height: 32),
-
-              // Teaching Courses Section Header
-              _buildSectionHeader(textTheme),
-              const SizedBox(height: 20),
-
-              // Course List
-              _courses.isEmpty
-                  ? _buildEmptyState(theme)
-                  : _buildCourseList(),
-            ],
-          ),
-        ),
       ),
     );
   }
 
-  // Hero Welcome Card with Glassmorphism and Pattern Background - CHANGED TO SKY BLUE
-  Widget _buildHeroWelcomeCard(ThemeData theme, TextTheme textTheme) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.lightBlue.shade800,
-            Colors.lightBlue.shade600,
-            Colors.cyan.shade500,
-          ],
-        ),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.lightBlue.withValues(alpha: 0.4),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+  // Custom Header (replaces AppBar)
+  Widget _buildCustomHeader(TextTheme textTheme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            'Lecturer Dashboard',
+            style: textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              letterSpacing: -0.3,
+            ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.3),
+                width: 1,
+              ),
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.settings_rounded),
+              color: Colors.white,
+              tooltip: 'Settings',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SettingsScreen(isLecturer: true),
+                  ),
+                );
+              },
+            ),
           ),
         ],
       ),
-      child: ClipRRect(
+    );
+  }
+
+  // Glassmorphic Welcome Card
+  Widget _buildGlassmorphicWelcomeCard(ThemeData theme, TextTheme textTheme) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(24),
-        child: Stack(
-          children: [
-            // Background Pattern
-            Positioned.fill(
-              child: CustomPaint(
-                painter: _CirclePatternPainter(),
-              ),
-            ),
-
-            // Content
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Welcome Text
-                  Text(
-                    'Welcome back,',
-                    style: textTheme.bodyLarge?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.85),
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-
-                  // Name
-                  Text(
-                    'Dr. $_userName',
-                    style: textTheme.headlineMedium?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Role Badge (Chip-style)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 7,
-                    ),
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.4),
-                        width: 1.5,
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.school_rounded,
-                          size: 16,
-                          color: Colors.white.withValues(alpha: 0.9),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Lecturer',
-                          style: textTheme.labelMedium?.copyWith(
-                            color: Colors.white.withValues(alpha: 0.95),
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.5),
+          width: 1,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Welcome Text
+          Text(
+            'Welcome back,',
+            style: textTheme.bodyLarge?.copyWith(
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+          const SizedBox(height: 6),
+
+          // Name
+          Text(
+            'Dr. $_userName',
+            style: textTheme.headlineMedium?.copyWith(
+              color: Colors.deepPurple.shade900,
+              fontWeight: FontWeight.bold,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Role Badge
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 7,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.deepPurple.shade50,
+              border: Border.all(
+                color: Colors.deepPurple.shade300,
+                width: 1.5,
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.school_rounded,
+                  size: 16,
+                  color: Colors.deepPurple.shade700,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Lecturer',
+                  style: textTheme.labelMedium?.copyWith(
+                    color: Colors.deepPurple.shade700,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Courses Glass Card Container
+  Widget _buildCoursesGlassCard(ThemeData theme, TextTheme textTheme) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.5),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Section Header
+          _buildSectionHeader(textTheme),
+          const SizedBox(height: 20),
+
+          // Course List or Empty State
+          _courses.isEmpty ? _buildEmptyState(theme) : _buildCourseList(),
+        ],
       ),
     );
   }
@@ -270,15 +311,16 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
       children: [
         Text(
           'My Courses',
-          style: textTheme.headlineSmall?.copyWith(
+          style: textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.bold,
-            letterSpacing: -0.5,
+            letterSpacing: -0.3,
+            color: Colors.deepPurple.shade900,
           ),
         ),
         Text(
           '${_courses.length} ${_courses.length == 1 ? 'course' : 'courses'}',
           style: textTheme.bodyMedium?.copyWith(
-            color: Colors.grey[500],
+            color: Colors.grey[600],
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -286,7 +328,7 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
     );
   }
 
-  // Enhanced Empty State - CHANGED TO SKY BLUE
+  // Enhanced Empty State with Royal Purple
   Widget _buildEmptyState(ThemeData theme) {
     return Center(
       child: Padding(
@@ -297,7 +339,7 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
             Icon(
               Icons.auto_stories_rounded,
               size: 140,
-              color: Colors.lightBlue.withValues(alpha: 0.15),
+              color: Colors.deepPurple.withValues(alpha: 0.15),
             ),
             const SizedBox(height: 24),
             Text(
@@ -341,7 +383,7 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
     );
   }
 
-  // Enhanced Course Card
+  // Enhanced Course Card with Glassmorphism
   Widget _buildCourseCard({
     required Map<String, dynamic> course,
     required Color courseColor,
@@ -391,7 +433,7 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
                 // Header: Icon + Title
                 Row(
                   children: [
-                    // Color-Coded Icon
+                    // Color-Coded Icon (Warm & Royal palette)
                     Container(
                       width: 56,
                       height: 56,
@@ -477,6 +519,55 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
                     ),
 
                     const Spacer(),
+
+                    // Generate QR Button
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => QrGeneratorScreen(
+                              courseTitle: course['title'],
+                              courseId: course['id'].toString(),
+                            ),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.deepPurple.shade50,
+                          border: Border.all(
+                            color: Colors.deepPurple.shade200,
+                            width: 1,
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.qr_code_rounded,
+                              size: 16,
+                              color: Colors.deepPurple.shade700,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'QR',
+                              style: textTheme.labelMedium?.copyWith(
+                                color: Colors.deepPurple.shade700,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(width: 8),
 
                     // View Details Badge
                     Container(

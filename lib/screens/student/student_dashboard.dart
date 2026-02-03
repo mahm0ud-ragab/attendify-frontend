@@ -1,11 +1,12 @@
-// Student Dashboard Screen - Sky Blue Theme with Glassmorphism
+// Student Dashboard Screen - Sky Blue Theme with Full Glassmorphism
 
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import '../../services/api_service.dart';
 import '../../services/storage_service.dart';
-import '../auth/login_screen.dart';
 import 'beacon_scanner_screen.dart';
+import '../common/settings_screen.dart';
+import 'qr_scanner_screen.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -42,39 +43,6 @@ class _StudentDashboardState extends State<StudentDashboard> {
     });
   }
 
-  Future<void> _handleLogout() async {
-    // Show confirmation dialog - MODERNIZED DESIGN
-    final shouldLogout = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Logout'),
-        content: const Text('Are you sure you want to logout?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Logout'),
-          ),
-        ],
-      ),
-    );
-
-    if (shouldLogout == true) {
-      await _apiService.logout();
-      if (!mounted) return;
-
-      // Navigate to login screen
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const LoginScreen()),
-            (route) => false,
-      );
-    }
-  }
 
   // Helper to generate consistent colors based on Course ID - SKY BLUE PALETTE
   Color _getCourseColor(int id) {
@@ -107,150 +75,247 @@ class _StudentDashboardState extends State<StudentDashboard> {
     final textTheme = theme.textTheme;
 
     return Scaffold(
-      backgroundColor: Colors.grey[50],
-      appBar: AppBar(
-        title: Text(
-          'Student Dashboard',
-          style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout_rounded),
-            onPressed: _handleLogout,
-            tooltip: 'Logout',
+      body: Stack(
+        children: [
+          // Layer 1: Sky Blue Gradient Background
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.blue.shade700,
+                  Colors.blue.shade600,
+                  Colors.lightBlue.shade500,
+                ],
+              ),
+            ),
+          ),
+
+          // Layer 2: Circle Pattern Overlay
+          Positioned.fill(
+            child: CustomPaint(
+              painter: _CirclePatternPainter(),
+            ),
+          ),
+
+          // Layer 3: Content
+          SafeArea(
+            child: Column(
+              children: [
+                // Custom Header (replaces AppBar)
+                _buildCustomHeader(textTheme),
+
+                // Scrollable Content
+                Expanded(
+                  child: _isLoading
+                      ? const Center(
+                    child: CircularProgressIndicator(
+                      color: Colors.white,
+                    ),
+                  )
+                      : RefreshIndicator(
+                    onRefresh: _loadData,
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Glassmorphic Welcome Card
+                          _buildGlassmorphicWelcomeCard(theme, textTheme),
+                          const SizedBox(height: 32),
+
+                          // Glassmorphic Courses Card
+                          _buildCoursesGlassCard(theme, textTheme),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-        onRefresh: _loadData,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Hero Welcome Card with Glassmorphism - SKY BLUE THEME
-              _buildHeroWelcomeCard(theme, textTheme),
-              const SizedBox(height: 32),
 
-              // Enrolled Courses Section Header
-              _buildSectionHeader(textTheme),
-              const SizedBox(height: 20),
-
-              // Course List
-              _courses.isEmpty
-                  ? _buildEmptyState(theme)
-                  : _buildCourseList(),
-            ],
-          ),
-        ),
+      // FAB — quick-launch QR scanner from anywhere on the dashboard
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: Colors.blue,
+        foregroundColor: Colors.white,
+        tooltip: 'Scan Attendance',
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const QrScannerScreen(
+                courseId: "0",
+                courseTitle: "Scan Attendance",
+              ),
+            ),
+          );
+        },
+        child: const Icon(Icons.qr_code_scanner),
       ),
     );
   }
 
-  // Hero Welcome Card with Glassmorphism and Pattern Background - SKY BLUE
-  Widget _buildHeroWelcomeCard(ThemeData theme, TextTheme textTheme) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.lightBlue.shade800,
-            Colors.lightBlue.shade600,
-            Colors.cyan.shade500,
-          ],
-        ),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.lightBlue.withValues(alpha: 0.4),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
+  // Custom Header (replaces AppBar)
+  Widget _buildCustomHeader(TextTheme textTheme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            'Student Dashboard',
+            style: textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              letterSpacing: -0.3,
+            ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.3),
+                width: 1,
+              ),
+            ),
+            child: IconButton(
+              icon: const Icon(Icons.settings_rounded),
+              color: Colors.white,
+              tooltip: 'Settings',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const SettingsScreen(isLecturer: false),
+                  ),
+                );
+              },
+            ),
           ),
         ],
       ),
-      child: ClipRRect(
+    );
+  }
+
+  // Glassmorphic Welcome Card
+  Widget _buildGlassmorphicWelcomeCard(ThemeData theme, TextTheme textTheme) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(24),
-        child: Stack(
-          children: [
-            // Background Pattern
-            Positioned.fill(
-              child: CustomPaint(
-                painter: _CirclePatternPainter(),
-              ),
-            ),
-
-            // Content
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Welcome Text
-                  Text(
-                    'Welcome back,',
-                    style: textTheme.bodyLarge?.copyWith(
-                      color: Colors.white.withValues(alpha: 0.85),
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-
-                  // Name
-                  Text(
-                    _userName,
-                    style: textTheme.headlineMedium?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Role Badge (Chip-style)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 7,
-                    ),
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.4),
-                        width: 1.5,
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.school_rounded,
-                          size: 16,
-                          color: Colors.white.withValues(alpha: 0.9),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Student',
-                          style: textTheme.labelMedium?.copyWith(
-                            color: Colors.white.withValues(alpha: 0.95),
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.5),
+          width: 1,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Welcome Text
+          Text(
+            'Welcome back,',
+            style: textTheme.bodyLarge?.copyWith(
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+          const SizedBox(height: 6),
+
+          // Name
+          Text(
+            _userName,
+            style: textTheme.headlineMedium?.copyWith(
+              color: Colors.blue.shade900,
+              fontWeight: FontWeight.bold,
+              letterSpacing: -0.5,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Role Badge
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 7,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              border: Border.all(
+                color: Colors.blue.shade300,
+                width: 1.5,
+              ),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.school_rounded,
+                  size: 16,
+                  color: Colors.blue.shade700,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'Student',
+                  style: textTheme.labelMedium?.copyWith(
+                    color: Colors.blue.shade700,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Glassmorphic Courses Card Container
+  Widget _buildCoursesGlassCard(ThemeData theme, TextTheme textTheme) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.5),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Section Header
+          _buildSectionHeader(textTheme),
+          const SizedBox(height: 20),
+
+          // Course List or Empty State
+          _courses.isEmpty ? _buildEmptyState(theme) : _buildCourseList(),
+        ],
       ),
     );
   }
@@ -263,15 +328,16 @@ class _StudentDashboardState extends State<StudentDashboard> {
       children: [
         Text(
           'My Courses',
-          style: textTheme.headlineSmall?.copyWith(
+          style: textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.bold,
-            letterSpacing: -0.5,
+            letterSpacing: -0.3,
+            color: Colors.blue.shade900,
           ),
         ),
         Text(
           '${_courses.length} ${_courses.length == 1 ? 'course' : 'courses'}',
           style: textTheme.bodyMedium?.copyWith(
-            color: Colors.grey[500],
+            color: Colors.grey[600],
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -290,7 +356,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
             Icon(
               Icons.school_outlined,
               size: 140,
-              color: Colors.lightBlue.withValues(alpha: 0.15),
+              color: Colors.blue.withValues(alpha: 0.15),
             ),
             const SizedBox(height: 24),
             Text(
@@ -454,7 +520,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                 Row(
                   children: [
                     Icon(
-                      Icons.qr_code_scanner_rounded,
+                      Icons.bluetooth_searching_rounded,
                       size: 18,
                       color: Colors.grey[600],
                     ),

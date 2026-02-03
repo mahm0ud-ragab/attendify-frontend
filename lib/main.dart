@@ -1,9 +1,11 @@
-// Main Entry Point of the App - Sky Blue Theme
+// Main Entry Point of the App - Sky Blue Theme with Localization Support
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'dart:math' as math;
 import 'services/storage_service.dart';
+import 'services/localization_service.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/student/student_dashboard.dart';
 import 'screens/doctor/lecturer_dashboard.dart';
@@ -24,16 +26,81 @@ void main() {
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  // Static method to change locale from anywhere in the app
+  static void setLocale(BuildContext context, Locale newLocale) {
+    final state = context.findAncestorStateOfType<_MyAppState>();
+    state?.setLocale(newLocale);
+  }
+
+  // Static method to get current locale
+  static Locale? getLocale(BuildContext context) {
+    final state = context.findAncestorStateOfType<_MyAppState>();
+    return state?._locale;
+  }
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  Locale? _locale;
+  final _storageService = StorageService();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedLocale();
+  }
+
+  // Load saved locale from storage
+  Future<void> _loadSavedLocale() async {
+    try {
+      final savedLocaleCode = await _storageService.getString('locale');
+      if (savedLocaleCode != null && mounted) {
+        setState(() {
+          _locale = Locale(savedLocaleCode);
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading locale: $e');
+    }
+  }
+
+  // Change locale and save to storage
+  void setLocale(Locale locale) {
+    setState(() {
+      _locale = locale;
+    });
+    _storageService.setString('locale', locale.languageCode);
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Attendify',
       debugShowCheckedModeBanner: false,
+
+      // Localization Configuration
+      locale: _locale,
+      supportedLocales: const [
+        Locale('en', ''), // English
+        Locale('ar', ''), // Arabic
+        Locale('fr', ''), // French
+        Locale('es', ''), // Spanish
+        Locale('de', ''), // German
+      ],
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+
       theme: ThemeData(
-        // CHANGED TO SKY BLUE - Light blue as primary color
+        // Sky Blue Theme
         primarySwatch: Colors.lightBlue,
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
@@ -183,7 +250,7 @@ class _SplashScreenState extends State<SplashScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        // CHANGED TO SKY BLUE GRADIENT
+        // Sky Blue Gradient
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -197,7 +264,7 @@ class _SplashScreenState extends State<SplashScreen>
         ),
         child: Stack(
           children: [
-            // Background pattern (same as dashboards)
+            // Background pattern
             Positioned.fill(
               child: CustomPaint(
                 painter: _CirclePatternPainter(),
@@ -239,9 +306,9 @@ class _SplashScreenState extends State<SplashScreen>
                         ],
                       ),
                       child: Image.asset(
-                        'assets/images/logo.png',
-                        width: 100,
-                        height: 100,
+                        'assets/images/Logo.png',
+                        width: 150,
+                        height: 150,
                         errorBuilder: (context, error, stackTrace) {
                           // Fallback icon if image fails to load
                           return Container(
@@ -304,7 +371,7 @@ class _SplashScreenState extends State<SplashScreen>
                     const SizedBox(height: 60),
 
                     // Loading Indicator
-                    SizedBox(
+                    const SizedBox(
                       width: 32,
                       height: 32,
                       child: CircularProgressIndicator(
@@ -323,7 +390,7 @@ class _SplashScreenState extends State<SplashScreen>
   }
 }
 
-// Custom Painter for Circle Pattern Background (reused from dashboards)
+// Custom Painter for Circle Pattern Background
 class _CirclePatternPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
