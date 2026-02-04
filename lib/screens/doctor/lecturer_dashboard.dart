@@ -7,6 +7,7 @@ import '../../services/storage_service.dart';
 import '../student/course_detail_screen.dart';
 import '../common/settings_screen.dart';
 import 'qr_generator_screen.dart';
+import 'attendance_stats_screen.dart';
 
 class LecturerDashboard extends StatefulWidget {
   const LecturerDashboard({super.key});
@@ -500,10 +501,9 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
                 ),
                 const SizedBox(height: 14),
 
-                // Metadata Footer
+                // ── Student count row ──
                 Row(
                   children: [
-                    // Student Count
                     Icon(
                       Icons.people_rounded,
                       size: 18,
@@ -517,79 +517,147 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
+                  ],
+                ),
 
-                    const Spacer(),
+                const SizedBox(height: 12),
 
-                    // Generate QR Button
-                    GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => QrGeneratorScreen(
-                              courseTitle: course['title'],
-                              courseId: course['id'].toString(),
-                            ),
-                          ),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.deepPurple.shade50,
-                          border: Border.all(
-                            color: Colors.deepPurple.shade200,
-                            width: 1,
-                          ),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.qr_code_rounded,
-                              size: 16,
-                              color: Colors.deepPurple.shade700,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'QR',
-                              style: textTheme.labelMedium?.copyWith(
-                                color: Colors.deepPurple.shade700,
-                                fontWeight: FontWeight.w600,
+                // ── Action chips row ──
+                Row(
+                  children: [
+                    // Left half: Stats + QR (stacked or side-by-side)
+                    Expanded(
+                      child: Row(
+                        children: [
+                          // Stats chip
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => AttendanceStatsScreen(
+                                      courseId: course['id'],
+                                      courseTitle: course['title'] ?? 'Course',
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.deepPurple.shade100,
+                                  border: Border.all(
+                                    color: Colors.deepPurple.shade300,
+                                    width: 1,
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.bar_chart_rounded,
+                                      size: 15,
+                                      color: Colors.deepPurple.shade700,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    // Text(
+                                    //   'Stats',
+                                    //   style: textTheme.labelMedium?.copyWith(
+                                    //     color: Colors.deepPurple.shade700,
+                                    //     fontWeight: FontWeight.w600,
+                                    //     fontSize: 12,
+                                    //   ),
+                                    // ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ],
-                        ),
+                          ),
+
+                          const SizedBox(width: 6),
+
+                          // QR chip
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => QrGeneratorScreen(
+                                      courseTitle: course['title'],
+                                      courseId: course['id'].toString(),
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.deepPurple.shade50,
+                                  border: Border.all(
+                                    color: Colors.deepPurple.shade200,
+                                    width: 1,
+                                  ),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.qr_code_rounded,
+                                      size: 15,
+                                      color: Colors.deepPurple.shade700,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    // Text(
+                                    //   'QR',
+                                    //   style: textTheme.labelMedium?.copyWith(
+                                    //     color: Colors.deepPurple.shade700,
+                                    //     fontWeight: FontWeight.w600,
+                                    //     fontSize: 12,
+                                    //   ),
+                                    // ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
 
                     const SizedBox(width: 8),
 
-                    // View Details Badge
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: courseColor.withValues(alpha: 0.3),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'View Details',
-                            style: textTheme.labelMedium?.copyWith(
-                              color: textColor,
-                              fontWeight: FontWeight.w600,
-                            ),
+                    // Right half: View Details
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: courseColor.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'View Details',
+                          textAlign: TextAlign.center,
+                          style: textTheme.labelMedium?.copyWith(
+                            color: textColor,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
                           ),
-                        ],
+                        ),
                       ),
                     ),
                   ],

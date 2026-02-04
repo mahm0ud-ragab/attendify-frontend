@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import '../../services/api_service.dart';
+import '../../services/device_service.dart';
 import '../../services/storage_service.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
@@ -42,10 +43,14 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
+      final deviceId = await DeviceService.getDeviceFingerprint();
+
       final result = await _apiService.login(
         email: _emailController.text.trim(),
         password: _passwordController.text,
+        deviceId: deviceId,
       );
+
 
       setState(() {
         _isLoading = false;
