@@ -202,69 +202,108 @@ class _AttendanceStatsScreenState extends State<AttendanceStatsScreen> {
   );
 
   // ════════════════════════════════════════════════════════════════════════════
-  // 2×2 SUMMARY GRID
+  // 2×2 SUMMARY GRID - FULLY RESPONSIVE
   // ════════════════════════════════════════════════════════════════════════════
   Widget _summaryGrid() {
     final best = _stats?['best_session'] as Map<String, dynamic>?;
-    return GridView.count(
-      crossAxisCount: 2,
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      childAspectRatio: 1.15,
-      children: [
-        _statTile(Icons.people_rounded,
-            Colors.deepPurple.shade600, Colors.deepPurple.shade50,
-            'Enrolled', '$_enrolled', 'students'),
 
-        _statTile(Icons.event_repeat_rounded,
-            Colors.teal.shade600,      Colors.teal.shade50,
-            'Sessions', '$_sessions', 'held'),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Calculate optimal card dimensions based on available width
+        final availableWidth = constraints.maxWidth;
+        final cardWidth = (availableWidth - 12) / 2; // 12 = gap between cards
+        final cardHeight = cardWidth * 0.85; // Maintain good proportions
 
-        _statTile(Icons.bar_chart_rounded,
-            Colors.orange.shade600,    Colors.orange.shade50,
-            'Avg Rate', '${_rate}%',   'overall'),
+        return GridView.count(
+          crossAxisCount: 2,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          childAspectRatio: cardWidth / cardHeight,
+          children: [
+            _statTile(Icons.people_rounded,
+                Colors.deepPurple.shade600, Colors.deepPurple.shade50,
+                'Enrolled', '$_enrolled', 'students'),
 
-        _statTile(Icons.star_rounded,
-            Colors.pink.shade600,      Colors.pink.shade50,
-            'Best',
-            best != null ? '${best["attended_count"]} / $_enrolled' : '–',
-            'session'),
-      ],
+            _statTile(Icons.event_repeat_rounded,
+                Colors.teal.shade600,      Colors.teal.shade50,
+                'Sessions', '$_sessions', 'held'),
+
+            _statTile(Icons.bar_chart_rounded,
+                Colors.orange.shade600,    Colors.orange.shade50,
+                'Avg Rate', '${_rate}%',   'overall'),
+
+            _statTile(Icons.star_rounded,
+                Colors.pink.shade600,      Colors.pink.shade50,
+                'Best',
+                best != null ? '${best["attended_count"]} / $_enrolled' : '–',
+                'session'),
+          ],
+        );
+      },
     );
   }
 
   Widget _statTile(IconData icon, Color ic, Color ib,
       String title, String value, String sub) {
     return _card(
-      padding: 14,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // icon badge
-          Container(width: 40, height: 40,
-              decoration: BoxDecoration(color: ib, borderRadius: BorderRadius.circular(11)),
-              child: Icon(icon, color: ic, size: 20)),
-          const Spacer(),
-          // value
-          Text(value, style: const TextStyle(
-              fontSize: 23, fontWeight: FontWeight.bold,
-              color: Color(0xFF1A1248), letterSpacing: -0.5)),
-          const SizedBox(height: 2),
-          // title
-          Text(title, style: const TextStyle(
-              fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF757575))),
-          // sub
-          Text(sub, style: const TextStyle(
-              fontSize: 10, color: Color(0xFF9E9E9E))),
-        ],
+      padding: 12,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Calculate responsive sizes based on card width
+          final cardWidth = constraints.maxWidth;
+          final iconSize = (cardWidth * 0.25).clamp(32.0, 40.0);
+          final valueSize = (cardWidth * 0.18).clamp(18.0, 23.0);
+          final titleSize = (cardWidth * 0.095).clamp(10.0, 12.0);
+          final subSize = (cardWidth * 0.08).clamp(9.0, 10.0);
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // icon badge
+              Container(
+                width: iconSize,
+                height: iconSize,
+                decoration: BoxDecoration(color: ib, borderRadius: BorderRadius.circular(10)),
+                child: Icon(icon, color: ic, size: iconSize * 0.5),
+              ),
+              const Spacer(),
+              // value
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(value, style: TextStyle(
+                    fontSize: valueSize,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF1A1248),
+                    letterSpacing: -0.5)),
+              ),
+              SizedBox(height: cardWidth * 0.015),
+              // title
+              Text(title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: titleSize,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF757575))),
+              // sub
+              Text(sub,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontSize: subSize,
+                      color: const Color(0xFF9E9E9E))),
+            ],
+          );
+        },
       ),
     );
   }
 
   // ════════════════════════════════════════════════════════════════════════════
-  // BAR CHART
+  // BAR CHART - FULLY RESPONSIVE
   // ════════════════════════════════════════════════════════════════════════════
   Widget _chartCard() {
     // show latest 8 sessions, left → right = oldest → newest
@@ -277,9 +316,13 @@ class _AttendanceStatsScreenState extends State<AttendanceStatsScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text('Attendance per Session',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold,
-                    color: Color(0xFF1A1248), letterSpacing: -0.3)),
+            const Flexible(
+              child: Text('Attendance per Session',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold,
+                      color: Color(0xFF1A1248), letterSpacing: -0.3),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis),
+            ),
             Row(children: [
               _legend(Colors.deepPurple.shade500, 'Present'),
               const SizedBox(width: 14),
@@ -289,11 +332,19 @@ class _AttendanceStatsScreenState extends State<AttendanceStatsScreen> {
         ),
         const SizedBox(height: 16),
 
-        // the chart itself
+        // the chart itself - fully responsive
         SizedBox(height: 150,
-          child: CustomPaint(
-            painter: _BarChartPainter(sessions: display, enrolled: _enrolled),
-            child: const SizedBox.expand(),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return CustomPaint(
+                painter: _BarChartPainter(
+                  sessions: display,
+                  enrolled: _enrolled,
+                  availableWidth: constraints.maxWidth,
+                ),
+                child: const SizedBox.expand(),
+              );
+            },
           ),
         ),
       ],
@@ -392,30 +443,41 @@ class _AttendanceStatsScreenState extends State<AttendanceStatsScreen> {
           onTap: () => setState(() { expanded ? _expanded.remove(sid) : _expanded.add(sid); }),
           borderRadius: BorderRadius.circular(20),
           child: Padding(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // ── top row: icon  date  [live badge]  chevron ──
                 Row(children: [
-                  Container(width: 40, height: 40,
+                  Container(
+                      width: 36,
+                      height: 36,
                       decoration: BoxDecoration(
                           color: Colors.deepPurple.shade50,
-                          borderRadius: BorderRadius.circular(12)),
+                          borderRadius: BorderRadius.circular(10)),
                       child: Icon(Icons.class_rounded,
-                          color: Colors.deepPurple.shade700, size: 20)),
-                  const SizedBox(width: 14),
-                  Expanded(child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(dateDisp, style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1A1248))),
-                      Text('Session #$sid', style: const TextStyle(
-                          fontSize: 12, color: Color(0xFF9E9E9E))),
-                    ],
-                  )),
+                          color: Colors.deepPurple.shade700, size: 18)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(dateDisp,
+                            style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF1A1248)),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                        Text('Session #$sid',
+                            style: const TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF9E9E9E))),
+                      ],
+                    ),
+                  ),
                   if (active) _liveBadge(),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 4),
                   AnimatedRotation(
                     turns: expanded ? 0.5 : 0,
                     duration: const Duration(milliseconds: 200),
@@ -423,7 +485,7 @@ class _AttendanceStatsScreenState extends State<AttendanceStatsScreen> {
                   ),
                 ]),
 
-                const SizedBox(height: 14),
+                const SizedBox(height: 12),
 
                 // ── progress bar ──
                 ClipRRect(
@@ -439,8 +501,13 @@ class _AttendanceStatsScreenState extends State<AttendanceStatsScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('$attended / $_enrolled attended',
-                        style: const TextStyle(fontSize: 13, color: Color(0xFF757575), fontWeight: FontWeight.w500)),
+                    Flexible(
+                      child: Text('$attended / $_enrolled attended',
+                          style: const TextStyle(fontSize: 12, color: Color(0xFF757575), fontWeight: FontWeight.w500),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                    const SizedBox(width: 8),
                     Text('${rate}%',
                         style: TextStyle(fontSize: 14, color: rc, fontWeight: FontWeight.bold)),
                   ],
@@ -448,22 +515,22 @@ class _AttendanceStatsScreenState extends State<AttendanceStatsScreen> {
 
                 // ── expandable student list ──
                 if (expanded) ...[
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
                   Divider(color: Colors.grey.shade200, height: 1),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text('Students Present',
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF311B92))),
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF311B92))),
                       Text('${students.length}',
-                          style: const TextStyle(fontSize: 12, color: Color(0xFF9E9E9E), fontWeight: FontWeight.w600)),
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF9E9E9E), fontWeight: FontWeight.w600)),
                     ],
                   ),
                   const SizedBox(height: 10),
                   if (students.isEmpty)
                     const Text('No students marked attendance',
-                        style: TextStyle(fontSize: 13, color: Color(0xFF9E9E9E)))
+                        style: TextStyle(fontSize: 12, color: Color(0xFF9E9E9E)))
                   else
                     ListView.separated(
                       shrinkWrap: true,
@@ -482,17 +549,17 @@ class _AttendanceStatsScreenState extends State<AttendanceStatsScreen> {
   }
 
   Widget _liveBadge() => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
     decoration: BoxDecoration(
         color: Colors.green.shade50,
         border: Border.all(color: Colors.green.shade300, width: 1.2),
-        borderRadius: BorderRadius.circular(14)),
+        borderRadius: BorderRadius.circular(12)),
     child: Row(mainAxisSize: MainAxisSize.min, children: [
-      Container(width: 8, height: 8,
+      Container(width: 7, height: 7,
           decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle)),
-      const SizedBox(width: 5),
+      const SizedBox(width: 4),
       const Text('Live', style: TextStyle(
-          color: Color(0xFF2E7D32), fontWeight: FontWeight.w600, fontSize: 12)),
+          color: Color(0xFF2E7D32), fontWeight: FontWeight.w600, fontSize: 11)),
     ]),
   );
 
@@ -505,29 +572,41 @@ class _AttendanceStatsScreenState extends State<AttendanceStatsScreen> {
     final String name  = st['name']  ?? 'Unknown';
     final String email = st['email'] ?? '';
 
-    return Row(children: [
-      CircleAvatar(radius: 18,
-          backgroundColor: Colors.deepPurple.shade100,
-          child: Text(name[0].toUpperCase(),
-              style: TextStyle(color: Colors.deepPurple.shade700, fontWeight: FontWeight.bold, fontSize: 14))),
-      const SizedBox(width: 10),
-      Expanded(child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(name,  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF424242))),
-          Text(email, style: const TextStyle(fontSize: 12, color: Color(0xFF9E9E9E))),
-        ],
-      )),
-      // scan-time pill
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-            color: Colors.deepPurple.shade50,
-            borderRadius: BorderRadius.circular(8)),
-        child: Text(time, style: TextStyle(
-            fontSize: 12, color: Colors.deepPurple.shade700, fontWeight: FontWeight.w600)),
-      ),
-    ]);
+    return Row(
+      children: [
+        CircleAvatar(
+            radius: 16,
+            backgroundColor: Colors.deepPurple.shade100,
+            child: Text(name[0].toUpperCase(),
+                style: TextStyle(color: Colors.deepPurple.shade700, fontWeight: FontWeight.bold, fontSize: 13))),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(name,
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF424242)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+              Text(email,
+                  style: const TextStyle(fontSize: 11, color: Color(0xFF9E9E9E)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        // scan-time pill
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+          decoration: BoxDecoration(
+              color: Colors.deepPurple.shade50,
+              borderRadius: BorderRadius.circular(8)),
+          child: Text(time, style: TextStyle(
+              fontSize: 11, color: Colors.deepPurple.shade700, fontWeight: FontWeight.w600)),
+        ),
+      ],
+    );
   }
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -611,7 +690,7 @@ class _ExportSheetState extends State<_ExportSheet> {
         if (_pickedSession == null) return 0;
         final m = widget.sessions.firstWhere(
                 (s) => (s as Map)['session_id'] == _pickedSession, orElse: () => null);
-        return m != null ? (m as Map)['attended_count'] ?? 0 : 0;
+        return m != null ? (m as Map)['attended_count'] as int? ?? 0 : 0;
       case _Mode.dateRange:
         int c = 0;
         for (final s in widget.sessions) {
@@ -621,7 +700,7 @@ class _ExportSheetState extends State<_ExportSheet> {
             final dt = DateTime.parse(sess['date']);
             if (_startDate != null && dt.isBefore(_startDate!))         continue;
             if (_endDate   != null && dt.isAfter(_endDate!.add(const Duration(days:1)))) continue;
-            c += (sess['attended_count'] ?? 0) as int;
+            c += (sess['attended_count'] as int? ?? 0);
           } catch (_) {}
         }
         return c;
@@ -676,63 +755,53 @@ class _ExportSheetState extends State<_ExportSheet> {
 
   Future<bool> _saveAsExcel(String csvData) async {
     try {
-      final lines =
-      csvData.split('\n').where((l) => l.trim().isNotEmpty).toList();
-
+      // Parse CSV manually (simple parser for our controlled CSV format)
+      final lines = csvData.split('\n').where((l) => l.trim().isNotEmpty).toList();
       if (lines.isEmpty) return false;
 
+      // Create Excel workbook
       final excel = Excel.createExcel();
       final sheet = excel['Attendance'];
 
-      // ---------- HEADER ----------
+      // Add header row (first line of CSV)
       final headerCols = _parseCsvLine(lines[0]);
-
       for (int i = 0; i < headerCols.length; i++) {
-        sheet
-            .cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0))
-          ..value = TextCellValue(headerCols[i]) // ✅ FIX
-          ..cellStyle = CellStyle(
-            fontFamily: getFontFamily(FontFamily.Calibri),
-            bold: true,
-            backgroundColorHex:
-            ExcelColor.fromHexString('#E3F2FD'), // ✅ FIX
-          );
+        final cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0));
+        cell.value = TextCellValue(headerCols[i]);
+        cell.cellStyle = CellStyle(
+          fontFamily: getFontFamily(FontFamily.Calibri),
+          bold: true,
+          backgroundColorHex: ExcelColor.fromHexString('#E3F2FD'),
+        );
       }
 
-      // ---------- DATA ----------
+      // Add data rows
       for (int rowIdx = 1; rowIdx < lines.length; rowIdx++) {
         final cols = _parseCsvLine(lines[rowIdx]);
-
         for (int colIdx = 0; colIdx < cols.length; colIdx++) {
-          sheet
-              .cell(CellIndex.indexByColumnRow(
-              columnIndex: colIdx, rowIndex: rowIdx))
-            ..value = TextCellValue(cols[colIdx].toString()); // ✅ FIX
+          final cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: colIdx, rowIndex: rowIdx));
+          cell.value = TextCellValue(cols[colIdx]);
         }
       }
 
-      // ---------- COLUMN WIDTH ----------
-      sheet.setColumnWidth(0, 20);
-      sheet.setColumnWidth(1, 30);
-      sheet.setColumnWidth(2, 12);
-      sheet.setColumnWidth(3, 20);
-      sheet.setColumnWidth(4, 20);
+      // Note: setColWidth is not available in excel 4.0.6
+      // Column widths will be auto-sized by Excel when opened
 
-      // ---------- SAVE ----------
+      // Generate filename
       final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final filename = 'Attendance_${widget.courseTitle.replaceAll(' ', '_')}_$timestamp.xlsx';
 
-      final filename =
-          'Attendance_${widget.courseTitle.replaceAll(' ', '_')}_$timestamp.xlsx';
-
+      // Save file
       final bytes = excel.encode();
       if (bytes == null) return false;
 
+      // Get directory and save
       final directory = await getApplicationDocumentsDirectory();
       final filePath = '${directory.path}/$filename';
-
       final file = File(filePath);
       await file.writeAsBytes(bytes);
 
+      // Share the file
       await Share.shareXFiles(
         [XFile(filePath)],
         subject: 'Attendance Export - ${widget.courseTitle}',
@@ -1098,23 +1167,30 @@ class _ExportSheetState extends State<_ExportSheet> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Bar Chart – custom painter
+// Bar Chart – custom painter (FULLY RESPONSIVE)
 // ─────────────────────────────────────────────────────────────────────────────
 class _BarChartPainter extends CustomPainter {
   final List<dynamic> sessions;
   final int enrolled;
+  final double availableWidth;
 
-  const _BarChartPainter({required this.sessions, required this.enrolled});
+  const _BarChartPainter({
+    required this.sessions,
+    required this.enrolled,
+    required this.availableWidth,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     if (sessions.isEmpty || enrolled == 0) return;
 
     final n       = sessions.length;
-    final leftPad = 32.0;
-    final botPad  = 24.0;                         // space for labels
-    final barW    = (size.width - leftPad - (n - 1) * 7) / n;
-    final maxH    = size.height - botPad - 14;    // 14 px top for value labels
+    // Calculate responsive spacing and sizes
+    final leftPad = availableWidth * 0.08; // 8% of width
+    final botPad  = 24.0;
+    final spacing = (n > 4 ? 6.0 : 8.0); // Tighter spacing for more bars
+    final barW    = (size.width - leftPad - (n - 1) * spacing) / n;
+    final maxH    = size.height - botPad - 14;
 
     final enrolledPaint = Paint()..color = Colors.grey.shade300;
     final presentPaint  = Paint()..color = Colors.deepPurple.shade500;
@@ -1122,7 +1198,7 @@ class _BarChartPainter extends CustomPainter {
     for (int i = 0; i < n; i++) {
       final s   = sessions[i] as Map<String, dynamic>;
       final att = (s['attended_count'] ?? 0) as int;
-      final x   = leftPad + i * (barW + 7);
+      final x   = leftPad + i * (barW + spacing);
       final bot = size.height - botPad;
 
       // enrolled bar (bg)
@@ -1142,15 +1218,18 @@ class _BarChartPainter extends CustomPainter {
         try { final dt = DateTime.parse(s['date']); lbl = '${dt.day}/${dt.month}'; }
         catch (_) {}
       }
+      // Responsive font size for labels
+      final labelSize = (barW * 0.35).clamp(9.0, 12.0);
       _paintText(canvas,
           Offset(x + barW / 2, size.height - botPad + 5), lbl,
-          12, Colors.grey.shade500, TextAlign.center);
+          labelSize, Colors.grey.shade500, TextAlign.center);
 
       // ── value on top of present bar ──
       if (att > 0) {
+        final valueSize = (barW * 0.35).clamp(10.0, 12.0);
         _paintText(canvas,
             Offset(x + barW / 2, bot - h - 16), '$att',
-            12, Colors.deepPurple.shade800, TextAlign.center);
+            valueSize, Colors.deepPurple.shade800, TextAlign.center);
       }
     }
   }
@@ -1167,7 +1246,7 @@ class _BarChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _BarChartPainter old) =>
-      old.sessions != sessions || old.enrolled != enrolled;
+      old.sessions != sessions || old.enrolled != enrolled || old.availableWidth != availableWidth;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
