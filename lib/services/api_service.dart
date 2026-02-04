@@ -13,7 +13,7 @@ class ApiService {
   // For Windows Desktop or Chrome: 'http://localhost:5000'
 
   // TODO: Replace with your computer's IP address
-  static const String baseUrl = 'http://192.168.1.5:5000';
+  static const String baseUrl = 'http://192.168.1.3:5000';
 
   final StorageService _storage = StorageService();
 
@@ -390,4 +390,81 @@ class ApiService {
   Future<void> logout() async {
     await _storage.clearAll();
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // NEW ── Attendance Statistics
+  // GET  /api/attendance/stats/<course_id>
+  // ─────────────────────────────────────────────────────────────────────────
+  Future<Map<String, dynamic>> getAttendanceStats({required int courseId}) async {
+    try {
+      final token = await _storage.getToken();
+      if (token == null) return {'success': false, 'message': 'Not authenticated'};
+
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/attendance/stats/$courseId'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return {'success': true, 'stats': data};
+      } else {
+        return {'success': false, 'message': data['error'] ?? 'Failed to fetch stats'};
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Network error: ${e.toString()}'};
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // NEW ── CSV Export (returns raw CSV string on success)
+  // GET  /api/attendance/export/<course_id>/csv
+  //        ?session_id=<int>        – single session  (optional)
+  //        &start_date=YYYY-MM-DD   – range start     (optional)
+  //        &end_date=YYYY-MM-DD     – range end       (optional)
+  // ─────────────────────────────────────────────────────────────────────────
+  Future<Map<String, dynamic>> exportAttendanceCsv({
+    required int courseId,
+    int? sessionId,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    try {
+      final token = await _storage.getToken();
+      if (token == null) return {'success': false, 'message': 'Not authenticated'};
+
+      // build query string
+      final params = <String, String>{};
+      if (sessionId != null)  params['session_id'] = sessionId.toString();
+      if (startDate != null)  params['start_date'] = _fmtDate(startDate);
+      if (endDate != null)    params['end_date']   = _fmtDate(endDate);
+
+      final uri = Uri.parse('$baseUrl/api/attendance/export/$courseId/csv')
+          .replace(queryParameters: params);
+
+      final response = await http.get(
+        uri,
+        headers: { 'Authorization': 'Bearer $token' },
+      );
+
+      if (response.statusCode == 200) {
+        return { 'success': true, 'csv': response.body };
+      } else {
+        final data = jsonDecode(response.body);
+        return { 'success': false, 'message': data['error'] ?? 'Export failed' };
+      }
+    } catch (e) {
+      return {'success': false, 'message': 'Network error: ${e.toString()}'};
+    }
+  }
+
+  // ── tiny helper ──
+  static String _fmtDate(DateTime dt) =>
+      '${dt.year.toString().padLeft(4, '0')}-'
+          '${dt.month.toString().padLeft(2, '0')}-'
+          '${dt.day.toString().padLeft(2, '0')}';
 }

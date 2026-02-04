@@ -2,10 +2,12 @@
 
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
+import '../../services/device_service.dart';
 import '../../widgets/custom_button.dart';
 import '../../widgets/custom_text_field.dart';
 import '../student/student_dashboard.dart';
 import '../doctor/lecturer_dashboard.dart';
+
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -48,11 +50,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     // CRITICAL FIX #2: Wrap in try-catch for error handling
     try {
+      final deviceId = await DeviceService.getDeviceFingerprint();
+
       final result = await _apiService.register(
         email: _emailController.text.trim(),
         password: _passwordController.text,
         name: _nameController.text.trim(),
         role: _selectedRole,
+        deviceId: deviceId,
       );
 
       setState(() {
@@ -62,19 +67,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (!mounted) return;
 
       if (result['success']) {
-        // Backend returns token immediately, so navigate to dashboard
         final user = result['user'];
 
-        // CRITICAL FIX #1: Use bracket notation for Map access
-        // Navigate based on role
-        if (user['role'] == 'student') {
+        if (user.role == 'student') {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
               builder: (context) => const StudentDashboard(),
             ),
           );
-        } else if (user['role'] == 'lecturer') {
+        } else if (user.role == 'lecturer') {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(

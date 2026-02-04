@@ -46,7 +46,13 @@ dependencies:
   # Secure Storage
   flutter_secure_storage: ^9.0.0
 
-  device_info_plus: ^10.0.0   # For Android version detection
+  excel: ^4.0.6
+  path_provider: ^2.1.2
+  share_plus: ^7.2.2
+
+  device_info_plus: ^10.1.0
+
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:
