@@ -23,6 +23,7 @@ class ApiService {
     required String password,
     required String name,
     required String role,
+    required String deviceId,
   }) async {
     try {
       final response = await http.post(
@@ -34,6 +35,7 @@ class ApiService {
           'confirm_password': password,
           'name': name,
           'role': role,
+          'device_id': deviceId,
         }),
       );
 
@@ -74,6 +76,7 @@ class ApiService {
   Future<Map<String, dynamic>> login({
     required String email,
     required String password,
+    required String deviceId,
   }) async {
     try {
       final response = await http.post(
@@ -82,6 +85,7 @@ class ApiService {
         body: jsonEncode({
           'email': email,
           'password': password,
+          'device_id': deviceId,
         }),
       );
 
@@ -334,6 +338,7 @@ class ApiService {
       };
     }
   }
+
   // Get active session
   Future<Map<String, dynamic>> getActiveSession(int courseId) async {
     try {
@@ -385,10 +390,6 @@ class ApiService {
     } catch (e) {
       return {'success': false, 'message': 'Network error: ${e.toString()}'};
     }
-  }
-
-  Future<void> logout() async {
-    await _storage.clearAll();
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -462,9 +463,13 @@ class ApiService {
     }
   }
 
-  // ── tiny helper ──
+  // ── Helper method for date formatting ──
   static String _fmtDate(DateTime dt) =>
       '${dt.year.toString().padLeft(4, '0')}-'
           '${dt.month.toString().padLeft(2, '0')}-'
           '${dt.day.toString().padLeft(2, '0')}';
+
+  Future<void> logout() async {
+    await _storage.clearAll();
+  }
 }
