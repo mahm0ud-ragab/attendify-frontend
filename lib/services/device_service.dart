@@ -11,11 +11,11 @@ class DeviceService {
     if (Platform.isAndroid) {
       final info = await deviceInfo.androidInfo;
       rawData =
-      "${info.id}-${info.model}-${info.manufacturer}-${info.version.release}";
+          "${info.id}-${info.model}-${info.manufacturer}-${info.version.release}";
     } else if (Platform.isIOS) {
       final info = await deviceInfo.iosInfo;
       rawData =
-      "${info.identifierForVendor}-${info.model}-${info.systemVersion}";
+          "${info.identifierForVendor}-${info.model}-${info.systemVersion}";
     }
 
     final bytes = utf8.encode(rawData);
