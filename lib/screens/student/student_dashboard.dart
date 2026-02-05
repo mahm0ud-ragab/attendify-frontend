@@ -526,7 +526,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'Tap to scan and mark attendance',
+                      'Tap to mark attendance',
                       style: textTheme.bodySmall?.copyWith(
                         color: Colors.grey[600],
                         fontWeight: FontWeight.w500,
