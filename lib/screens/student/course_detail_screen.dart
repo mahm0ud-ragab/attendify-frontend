@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
 import '../../services/ble_service.dart';
+import '../../services/permission_service.dart';
+
 
 class CourseDetailScreen extends StatefulWidget {
   final int courseId;
@@ -23,6 +25,7 @@ class CourseDetailScreen extends StatefulWidget {
 class _CourseDetailScreenState extends State<CourseDetailScreen> with SingleTickerProviderStateMixin {
   final _apiService = ApiService();
   final _bleService = BLEService();
+  final _permissionService = PermissionService(); 
 
   Map<String, dynamic>? _courseData;
   bool _isLoading = true;
@@ -103,20 +106,42 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> with SingleTick
   }
 
   Future<void> _generateBeacon() async {
-    final hasPermission = await _bleService.checkPermissions();
-    if (!hasPermission) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Permissions required'), backgroundColor: Colors.red));
+    print('🎯 Generate Beacon button pressed');
+    
+    // Comprehensive permission check (like student screen)
+    final check = await _permissionService.performComprehensiveCheck();
+    print('📋 Comprehensive check result: ${check.isReady}');
+    
+    // Check permissions
+    if (!check.hasPermissions) {
+      print('❌ Permissions not granted');
+      final permanentlyDenied = await _permissionService.hasPermissionsPermanentlyDenied();
+      if (permanentlyDenied) {
+        _showPermissionsPermanentlyDeniedDialog();
+      } else {
+        _showPermissionDialog();
+      }
       return;
     }
-
-    final isBluetoothOn = await _bleService.isBluetoothEnabled();
-    if (!isBluetoothOn) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enable Bluetooth'), backgroundColor: Colors.red));
+    
+    // Check Bluetooth adapter
+    if (!check.isBluetoothEnabled) {
+      print('❌ Bluetooth is disabled');
+      final enabled = await _showBluetoothEnableDialog();
+      if (!enabled) return;
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+    
+    // Check Location services
+    if (!check.isLocationEnabled) {
+      print('❌ Location services disabled');
+      _showLocationServiceDialog();
       return;
     }
-
+    
+    // All checks passed - create session
+    print('✅ All checks passed - creating session');
+    
     if (!mounted) return;
     showDialog(
       context: context,
@@ -137,10 +162,14 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> with SingleTick
       });
       await _startBroadcasting();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Session Active'), backgroundColor: Colors.green));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('✓ Session Active'), backgroundColor: Colors.green)
+      );
     } else {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(result['message']), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result['message']), backgroundColor: Colors.red)
+      );
     }
   }
 
@@ -153,6 +182,159 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> with SingleTick
       }
       _isLoading = false;
     });
+  }
+
+    // ✅ Permission dialog
+  void _showPermissionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final colorScheme = Theme.of(context).colorScheme;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          icon: Icon(Icons.warning_amber_rounded, size: 48, color: colorScheme.error),
+          title: const Text('Permissions Required', textAlign: TextAlign.center),
+          content: const Text(
+            'This app needs Bluetooth and Location permissions to broadcast beacons.\n\n'
+            'Please grant the requested permissions.',
+            textAlign: TextAlign.center,
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                final granted = await _permissionService.requestBluetoothPermissions();
+                if (granted && mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('✓ Permissions granted!'), backgroundColor: Colors.green),
+                  );
+                }
+              },
+              child: const Text('Grant Permissions'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ✅ Permanently denied dialog
+  void _showPermissionsPermanentlyDeniedDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final colorScheme = Theme.of(context).colorScheme;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          icon: Icon(Icons.block_rounded, size: 48, color: colorScheme.error),
+          title: const Text('Permissions Denied', textAlign: TextAlign.center),
+          content: const Text(
+            'You have permanently denied required permissions.\n\n'
+            'Please open Settings and manually enable:\n• Bluetooth\n• Location',
+            textAlign: TextAlign.center,
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _permissionService.openSettings();
+              },
+              child: const Text('Open Settings'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ✅ Bluetooth enable dialog
+  Future<bool> _showBluetoothEnableDialog() async {
+    final colorScheme = Theme.of(context).colorScheme;
+    
+    // Try auto-enable on Android
+    final enabledAutomatically = await _permissionService.promptEnableBluetooth();
+    if (enabledAutomatically) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('✓ Bluetooth enabled!'), backgroundColor: Colors.green, duration: Duration(seconds: 2)),
+        );
+      }
+      return true;
+    }
+
+    // Show dialog if auto-enable failed
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          icon: Icon(Icons.bluetooth_disabled_rounded, size: 48, color: colorScheme.error),
+          title: const Text('Bluetooth Disabled', textAlign: TextAlign.center),
+          content: const Text(
+            'Please enable Bluetooth to broadcast the beacon signal.\n\n'
+            'You can enable it in Quick Settings or device settings.',
+            textAlign: TextAlign.center,
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+    return result ?? false;
+  }
+
+  // ✅ Location service dialog
+  void _showLocationServiceDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final colorScheme = Theme.of(context).colorScheme;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          icon: Icon(Icons.location_off_rounded, size: 48, color: colorScheme.error),
+          title: const Text('Location Services Disabled', textAlign: TextAlign.center),
+          content: const Text(
+            'Please enable Location Services to broadcast beacons.\n\n'
+            'Location is required by Android for Bluetooth operations.\n\n'
+            'Tap "Open Settings" to enable it now.',
+            textAlign: TextAlign.center,
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _permissionService.openLocationSettings();
+              },
+              child: const Text('Open Settings'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   // Helper to match Dashboard colors

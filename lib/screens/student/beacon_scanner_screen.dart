@@ -1,3 +1,6 @@
+// Enhanced Beacon Scanner Screen with Improved Permission Handling
+// Includes app lifecycle monitoring and comprehensive pre-scan checks
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../models/beacon.dart';
@@ -22,7 +25,8 @@ class BeaconScannerScreen extends StatefulWidget {
   State<BeaconScannerScreen> createState() => _BeaconScannerScreenState();
 }
 
-class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
+class _BeaconScannerScreenState extends State<BeaconScannerScreen>
+    with WidgetsBindingObserver {  // ✅ NEW: Add lifecycle observer
   final _bluetoothService = BluetoothService();
   final _permissionService = PermissionService();
   final _apiService = ApiService();
@@ -38,19 +42,82 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
   @override
   void initState() {
     super.initState();
-    _checkBluetoothState();
+    // ✅ NEW: Register lifecycle observer
+    WidgetsBinding.instance.addObserver(this);
+    
+    _checkInitialState();
     _listenToScanResults();
     _listenToScanningState();
   }
 
-  void _checkBluetoothState() async {
-    final isOn = await _bluetoothService.isBluetoothOn();
-    if (!isOn && mounted) {
-      setState(() {
-        _statusMessage = 'Please enable Bluetooth';
-        _errorMessage = 'Bluetooth is turned off';
-      });
+  @override
+  void dispose() {
+    // ✅ NEW: Remove lifecycle observer
+    WidgetsBinding.instance.removeObserver(this);
+    _bluetoothService.stopScan();
+    super.dispose();
+  }
+
+  // ✅ NEW: Handle app lifecycle changes
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    if (state == AppLifecycleState.resumed) {
+      // User returned to app (possibly from Settings)
+      print('📱 App resumed - re-checking permissions and services');
+      _recheckPermissionsAndServices();
+    } else if (state == AppLifecycleState.paused) {
+      // App went to background
+      print('📱 App paused');
     }
+  }
+
+  // ✅ NEW: Re-check everything when user returns from settings
+  Future<void> _recheckPermissionsAndServices() async {
+    final result = await _permissionService.performComprehensiveCheck();
+    
+    if (mounted) {
+      if (result.isReady) {
+        // Everything is now ready!
+        setState(() {
+          _errorMessage = null;
+          _statusMessage = 'Ready to scan';
+        });
+        
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✓ All permissions and services are enabled'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      } else {
+        // Still missing something
+        setState(() {
+          _errorMessage = result.userMessage;
+          _statusMessage = result.userMessage ?? 'Not ready';
+        });
+      }
+    }
+  }
+
+  // ✅ IMPROVED: Initial state check
+  Future<void> _checkInitialState() async {
+    final result = await _permissionService.performComprehensiveCheck();
+    
+    if (!mounted) return;
+    
+    setState(() {
+      if (!result.isReady) {
+        _statusMessage = result.userMessage ?? 'Not ready to scan';
+        _errorMessage = result.userMessage;
+      } else {
+        _statusMessage = 'Ready to scan';
+        _errorMessage = null;
+      }
+    });
   }
 
   void _listenToScanResults() {
@@ -78,24 +145,49 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
     });
   }
 
+  // ✅ IMPROVED: Comprehensive scan start with all checks
   Future<void> _startScan() async {
     HapticFeedback.lightImpact();
     print('🚀 Start Scan button pressed');
 
-    final hasPermissions = await _permissionService.requestBluetoothPermissions();
-    if (!hasPermissions) {
+    // ✅ NEW: Perform comprehensive check
+    final check = await _permissionService.performComprehensiveCheck();
+    print('📋 Comprehensive check result: ${check.isReady}');
+
+    // Step 1: Check permissions
+    if (!check.hasPermissions) {
       print('❌ Permissions not granted');
-      _showPermissionDialog();
+      
+      // Check if permanently denied
+      final permanentlyDenied = await _permissionService.hasPermissionsPermanentlyDenied();
+      if (permanentlyDenied) {
+        _showPermissionsPermanentlyDeniedDialog();
+      } else {
+        _showPermissionDialog();
+      }
       return;
     }
 
-    // Check if location services are enabled
-    final locationEnabled = await _permissionService.isLocationServiceEnabled();
-    if (!locationEnabled) {
+    // Step 2: Check Bluetooth adapter
+    if (!check.isBluetoothEnabled) {
+      print('❌ Bluetooth is disabled');
+      final enabled = await _showBluetoothEnableDialog();
+      if (!enabled) {
+        return; // User declined or failed to enable
+      }
+      // Wait a moment for Bluetooth to stabilize
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
+    // Step 3: Check Location services
+    if (!check.isLocationEnabled) {
+      print('❌ Location services disabled');
       _showLocationServiceDialog();
       return;
     }
 
+    // ✅ All checks passed - safe to scan!
+    print('✅ All checks passed - starting scan');
     setState(() {
       _statusMessage = 'Scanning for beacons...';
       _errorMessage = null;
@@ -110,6 +202,16 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
         _statusMessage = 'Scan failed';
         _errorMessage = e.toString();
       });
+      
+      // Show error in snackbar
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to start scan: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -125,14 +227,16 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
   Future<void> _handleMarkAttendance(Beacon beacon) async {
     // Stop scanning to save battery
     await _stopScan();
-    // Show loading (optional, since the button has a loader too,
-    // but blocking the screen is safer for exams)
+    
     if (!mounted) return;
+    
+    // Show loading
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => const Center(child: CircularProgressIndicator()),
     );
+    
     final result = await _apiService.markAttendance(
       courseId: widget.courseId,
       beaconUuid: beacon.uuid,
@@ -141,8 +245,10 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
       rssi: beacon.rssi,
       distance: beacon.accuracy,
     );
+    
     if (!mounted) return;
-    Navigator.pop(context); // Close global loader
+    Navigator.pop(context); // Close loading
+    
     if (result['success']) {
       // Success Dialog
       showDialog(
@@ -173,6 +279,7 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
     }
   }
 
+  // ✅ IMPROVED: Better permission dialog
   void _showPermissionDialog() {
     showDialog(
       context: context,
@@ -192,7 +299,65 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
             textAlign: TextAlign.center,
           ),
           content: const Text(
-            'This app needs Bluetooth and Location permissions to scan for beacons.\n\nLocation is required by Android for BLE scanning.',
+            'This app needs Bluetooth and Location permissions to scan for beacons.\n\n'
+            'Location is required by Android for BLE scanning.\n\n'
+            'Please grant the requested permissions.',
+            textAlign: TextAlign.center,
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                // Request permissions again
+                final granted = await _permissionService.requestBluetoothPermissions();
+                if (granted && mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('✓ Permissions granted!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                  _checkInitialState();
+                }
+              },
+              child: const Text('Grant Permissions'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // ✅ NEW: Dialog for permanently denied permissions
+  void _showPermissionsPermanentlyDeniedDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final colorScheme = Theme.of(context).colorScheme;
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          icon: Icon(
+            Icons.block_rounded,
+            size: 48,
+            color: colorScheme.error,
+          ),
+          title: const Text(
+            'Permissions Denied',
+            textAlign: TextAlign.center,
+          ),
+          content: const Text(
+            'You have permanently denied required permissions.\n\n'
+            'Please open Settings and manually enable:\n'
+            '• Bluetooth\n'
+            '• Location\n\n'
+            'Then return to this app.',
             textAlign: TextAlign.center,
           ),
           actionsAlignment: MainAxisAlignment.center,
@@ -214,6 +379,66 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
     );
   }
 
+  // ✅ NEW: Bluetooth enable dialog with Android auto-enable
+  Future<bool> _showBluetoothEnableDialog() async {
+    final colorScheme = Theme.of(context).colorScheme;
+    
+    // On Android, try to enable automatically first
+    final enabledAutomatically = await _permissionService.promptEnableBluetooth();
+    if (enabledAutomatically) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✓ Bluetooth enabled!'),
+            backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return true;
+    }
+
+    // If auto-enable failed or on iOS, show dialog
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          icon: Icon(
+            Icons.bluetooth_disabled_rounded,
+            size: 48,
+            color: colorScheme.error,
+          ),
+          title: const Text(
+            'Bluetooth Disabled',
+            textAlign: TextAlign.center,
+          ),
+          content: const Text(
+            'Please enable Bluetooth to scan for beacons.\n\n'
+            'You can enable it in your device settings or quick settings panel.',
+            textAlign: TextAlign.center,
+          ),
+          actionsAlignment: MainAxisAlignment.center,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result ?? false;
+  }
+
+  // ✅ IMPROVED: Location service dialog with better guidance
   void _showLocationServiceDialog() {
     showDialog(
       context: context,
@@ -233,14 +458,23 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
             textAlign: TextAlign.center,
           ),
           content: const Text(
-            'Please enable Location Services in your device settings.\n\nLocation is required by Android for Bluetooth beacon scanning.',
+            'Please enable Location Services in your device settings.\n\n'
+            'Location is required by Android for Bluetooth beacon scanning.\n\n'
+            'Tap "Open Settings" to enable it now.',
             textAlign: TextAlign.center,
           ),
           actionsAlignment: MainAxisAlignment.center,
           actions: [
-            FilledButton(
+            TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('OK'),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _permissionService.openLocationSettings();
+              },
+              child: const Text('Open Settings'),
             ),
           ],
         );
@@ -257,6 +491,35 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(courseTitle),
+        actions: [
+          // ✅ NEW: Diagnostics button (optional - for debugging)
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'Permission Status',
+            onPressed: () async {
+              final diagnostics = await _permissionService.getDiagnostics();
+              if (mounted) {
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Permission Diagnostics'),
+                    content: SingleChildScrollView(
+                      child: Text(diagnostics.entries
+                          .map((e) => '${e.key}: ${e.value}')
+                          .join('\n')),
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Close'),
+                      ),
+                    ],
+                  ),
+                );
+              }
+            },
+          ),
+        ],
       ),
       body: RefreshIndicator(
         onRefresh: () async {
@@ -368,8 +631,7 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
                           height: 40,
                           child: CircularProgressIndicator(
                             strokeWidth: 4,
-                            valueColor:
-                            AlwaysStoppedAnimation(colorScheme.primary),
+                            valueColor: AlwaysStoppedAnimation(colorScheme.primary),
                           ),
                         ),
                       ],
@@ -380,11 +642,11 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
             else
               SliverList(
                 delegate: SliverChildBuilderDelegate(
-                      (context, index) {
+                  (context, index) {
                     final beacon = _beacons[index];
-
-                    // Check if this is OUR university beacon
-                    final isUniBeacon = beacon.uuid.toLowerCase() == BLEService.beaconUUID.toLowerCase();
+                    final isUniBeacon = beacon.uuid.toLowerCase() == 
+                        BLEService.beaconUUID.toLowerCase();
+                    
                     return Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                       child: BeaconCard(
@@ -453,11 +715,5 @@ class _BeaconScannerScreenState extends State<BeaconScannerScreen> {
         ],
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _bluetoothService.stopScan();
-    super.dispose();
   }
 }

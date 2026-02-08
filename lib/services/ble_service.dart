@@ -1,4 +1,5 @@
 // BLE Beacon Service for Broadcasting and Scanning
+// ✅ IMPROVED: Now uses the enhanced PermissionService
 
 import 'dart:async';
 import 'package:flutter_beacon/flutter_beacon.dart';
@@ -11,7 +12,8 @@ class BLEService {
   StreamSubscription<RangingResult>? _rangingSubscription;
   bool _isBroadcasting = false;
 
-  // Check and request permissions
+  // ✅ DEPRECATED: Use PermissionService.performComprehensiveCheck() instead
+  // This method is kept for backwards compatibility but simplified
   Future<bool> checkPermissions() async {
     print('🔐 Checking permissions...');
 
@@ -32,11 +34,17 @@ class BLEService {
         return false;
       }
 
-      // Check Location Services are enabled
-      final serviceEnabled = await Permission.location.serviceStatus.isEnabled;
-      if (!serviceEnabled) {
-        print('⚠️ Location services are disabled!');
-        return false;
+      // Check Location Services are enabled using simpler check
+      try {
+        final serviceStatus = await Permission.location.serviceStatus;
+        final isEnabled = serviceStatus.isEnabled;
+        if (!isEnabled) {
+          print('⚠️ Location services are disabled!');
+          return false;
+        }
+      } catch (e) {
+        print('⚠️ Could not check location service: $e');
+        // Continue anyway
       }
 
       return true;
@@ -101,10 +109,7 @@ class BLEService {
     }
   }
 
-  // ---------------------------------------------------------
-  // ✅ UPDATED: Start Scanning
-  // Now sends 'uuid' and maps 'accuracy' to 'distance'
-  // ---------------------------------------------------------
+  // Start Scanning
   Stream<Map<String, dynamic>?> startScanning() async* {
     try {
       print('🔍 Initializing scanning...');
@@ -121,12 +126,12 @@ class BLEService {
         if (result.beacons.isNotEmpty) {
           for (var beacon in result.beacons) {
             yield {
-              'uuid': beacon.proximityUUID, // Required by UI
+              'uuid': beacon.proximityUUID,
               'major': beacon.major,
               'minor': beacon.minor,
               'rssi': beacon.rssi,
-              'distance': beacon.accuracy, // Mapped from accuracy to distance
-              'proximity': beacon.proximity.toString().split('.').last, // Returns "near", "immediate", etc.
+              'distance': beacon.accuracy,
+              'proximity': beacon.proximity.toString().split('.').last,
             };
           }
         } else {

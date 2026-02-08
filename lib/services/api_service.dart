@@ -13,7 +13,7 @@ class ApiService {
   // For Windows Desktop or Chrome: 'http://localhost:5000'
 
   // TODO: Replace with your computer's IP address
-  static const String baseUrl = 'http://192.168.1.12:5000';
+  static const String baseUrl = 'http://192.168.1.8:5000';
 
   final StorageService _storage = StorageService();
 
