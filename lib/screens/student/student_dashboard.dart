@@ -7,6 +7,7 @@ import '../../services/storage_service.dart';
 import 'beacon_scanner_screen.dart';
 import '../common/settings_screen.dart';
 import 'qr_scanner_screen.dart';
+import '../../services/permission_service.dart';
 
 class StudentDashboard extends StatefulWidget {
   const StudentDashboard({super.key});
@@ -18,6 +19,8 @@ class StudentDashboard extends StatefulWidget {
 class _StudentDashboardState extends State<StudentDashboard> {
   final _apiService = ApiService();
   final _storageService = StorageService();
+  final _permissionService = PermissionService(); // ✅ ADD THIS
+
   String _userName = '';
   List<dynamic> _courses = [];
   bool _isLoading = true;
@@ -25,7 +28,25 @@ class _StudentDashboardState extends State<StudentDashboard> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _initializeApp(); // ✅ CHANGE THIS
+  }
+
+  // ✅ ADD THIS NEW METHOD
+  Future<void> _initializeApp() async {
+    // Request permissions first
+    print('🔐 Requesting Bluetooth permissions...');
+    final permissionsGranted = await _permissionService.requestBluetoothPermissions();
+
+    if (!permissionsGranted) {
+      print('⚠️ Some permissions were denied');
+      // Optionally show a warning dialog
+      if (mounted) {
+        _showPermissionWarning();
+      }
+    }
+
+    // Then load dashboard data
+    await _loadData();
   }
 
   Future<void> _loadData() async {
