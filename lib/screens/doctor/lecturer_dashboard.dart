@@ -8,6 +8,7 @@ import '../student/course_detail_screen.dart';
 import '../common/settings_screen.dart';
 import 'qr_generator_screen.dart';
 import 'attendance_stats_screen.dart';
+import '../../services/permission_service.dart';
 
 class LecturerDashboard extends StatefulWidget {
   const LecturerDashboard({super.key});
@@ -19,6 +20,7 @@ class LecturerDashboard extends StatefulWidget {
 class _LecturerDashboardState extends State<LecturerDashboard> {
   final _apiService = ApiService();
   final _storageService = StorageService();
+  final _permissionService = PermissionService();
 
   String _userName = '';
   List<dynamic> _courses = [];
@@ -27,8 +29,22 @@ class _LecturerDashboardState extends State<LecturerDashboard> {
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _initializeApp();
   }
+
+  // ✅ ADD THIS NEW METHOD
+  Future<void> _initializeApp() async {
+    // Request permissions first (including BLUETOOTH_ADVERTISE for broadcasting)
+    print('🔐 Requesting Bluetooth permissions for Lecturer...');
+    final permissionsGranted = await _permissionService.requestBluetoothPermissions();
+
+    if (!permissionsGranted) {
+      print('⚠️ Some permissions were denied');
+      // Optionally show a warning dialog
+      if (mounted) {
+        _showPermissionWarning();
+      }
+    }
 
   Future<void> _loadData() async {
     // Load user name
