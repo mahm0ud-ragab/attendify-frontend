@@ -1,167 +1,8 @@
-// Enhanced Permission Service with Bluetooth and Location Service Checks
-// FINAL FIX: Properly opens Android Location Settings (not app info page)
-
 import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'dart:io' show Platform;
-import 'package:geolocator/geolocator.dart'; // ✅ NEW: For opening location settings
-
-/// Result class for comprehensive permission checks
-class PermissionCheckResult {
-  final bool hasPermissions;
-  final bool isBluetoothEnabled;
-  final bool isLocationEnabled;
-  final List<String> missingPermissions;
-  final String? userMessage;
-
-  PermissionCheckResult({
-    required this.hasPermissions,
-    required this.isBluetoothEnabled,
-    required this.isLocationEnabled,
-    required this.missingPermissions,
-    this.userMessage,
-  });
-
-  /// Returns true only if ALL requirements are met
-  bool get isReady => hasPermissions && isBluetoothEnabled && isLocationEnabled;
-
-  /// Returns true if user needs to take any action
-  bool get requiresAction => !isReady;
-
-  @override
-  String toString() {
-    return 'PermissionCheckResult(ready: $isReady, permissions: $hasPermissions, '
-        'bluetooth: $isBluetoothEnabled, location: $isLocationEnabled, '
-        'missing: $missingPermissions)';
-  }
-}
 
 class PermissionService {
-  /// Perform comprehensive pre-scan check
-  /// Checks permissions AND service states (Bluetooth, Location)
-  Future<PermissionCheckResult> performComprehensiveCheck() async {
-    print('🔍 Performing comprehensive permission check...');
-
-    try {
-      // Step 1: Check permissions
-      final hasPermissions = await hasBluetoothPermissions();
-
-      // Step 2: Check Bluetooth adapter state
-      final bluetoothEnabled = await isBluetoothEnabled();
-
-      // Step 3: Check Location service state
-      final locationEnabled = await isLocationServiceEnabled();
-
-      // Step 4: Identify missing permissions
-      final missing = <String>[];
-      if (!hasPermissions) {
-        if (Platform.isAndroid) {
-          final androidInfo = await _getAndroidVersion();
-          if (androidInfo >= 31) {
-            if (!await Permission.bluetoothScan.isGranted) {
-              missing.add('Bluetooth Scan');
-            }
-            if (!await Permission.bluetoothConnect.isGranted) {
-              missing.add('Bluetooth Connect');
-            }
-          } else {
-            if (!await Permission.bluetooth.isGranted) {
-              missing.add('Bluetooth');
-            }
-          }
-          if (!await Permission.locationWhenInUse.isGranted) {
-            missing.add('Location');
-          }
-        } else if (Platform.isIOS) {
-          if (!await Permission.bluetooth.isGranted) {
-            missing.add('Bluetooth');
-          }
-          if (!await Permission.locationWhenInUse.isGranted) {
-            missing.add('Location');
-          }
-        }
-      }
-
-      // Step 5: Generate user-friendly message
-      String? message;
-      if (!hasPermissions) {
-        message = 'Missing permissions: ${missing.join(', ')}';
-      } else if (!bluetoothEnabled) {
-        message = 'Please enable Bluetooth';
-      } else if (!locationEnabled) {
-        message = 'Please enable Location Services';
-      }
-
-      final result = PermissionCheckResult(
-        hasPermissions: hasPermissions,
-        isBluetoothEnabled: bluetoothEnabled,
-        isLocationEnabled: locationEnabled,
-        missingPermissions: missing,
-        userMessage: message,
-      );
-
-      print('📊 Check Result: $result');
-      return result;
-    } catch (e) {
-      print('❌ Error during comprehensive check: $e');
-      return PermissionCheckResult(
-        hasPermissions: false,
-        isBluetoothEnabled: false,
-        isLocationEnabled: false,
-        missingPermissions: ['Unknown'],
-        userMessage: 'Error checking permissions: $e',
-      );
-    }
-  }
-
-  /// Check if Bluetooth adapter is enabled (hardware level)
-  Future<bool> isBluetoothEnabled() async {
-    try {
-      // Use flutter_blue_plus to check adapter state
-      final adapterState = await FlutterBluePlus.adapterState.first
-          .timeout(const Duration(seconds: 3));
-
-      final isOn = adapterState == BluetoothAdapterState.on;
-      print('📶 Bluetooth Adapter: ${isOn ? "ON" : "OFF"}');
-      return isOn;
-    } catch (e) {
-      print('⚠️ Error checking Bluetooth state: $e');
-      return false;
-    }
-  }
-
-  /// Prompt user to enable Bluetooth
-  /// On Android: Attempts to turn on Bluetooth programmatically
-  /// On iOS: Returns false (iOS doesn't allow programmatic enable)
-  Future<bool> promptEnableBluetooth() async {
-    print('📢 Prompting user to enable Bluetooth...');
-
-    try {
-      if (Platform.isAndroid) {
-        // Android: Request to turn on Bluetooth
-        print('🤖 Requesting Bluetooth enable on Android...');
-        await FlutterBluePlus.turnOn();
-
-        // Wait a moment for Bluetooth to initialize
-        await Future.delayed(const Duration(milliseconds: 500));
-
-        // Verify it's actually on
-        final isOn = await isBluetoothEnabled();
-        print(isOn ? '✅ Bluetooth enabled!' : '❌ Bluetooth still off');
-        return isOn;
-      } else if (Platform.isIOS) {
-        // iOS: Cannot programmatically enable Bluetooth
-        print('🍎 iOS detected - user must manually enable Bluetooth');
-        return false;
-      }
-      return false;
-    } catch (e) {
-      print('❌ Error prompting Bluetooth enable: $e');
-      return false;
-    }
-  }
-
   /// Request all necessary Bluetooth and Location permissions
   Future<bool> requestBluetoothPermissions() async {
     print('🔐 Starting permission request...');
@@ -181,6 +22,7 @@ class PermissionService {
           statuses = await [
             Permission.bluetoothScan,
             Permission.bluetoothConnect,
+            Permission.bluetoothAdvertise, // ✅ ADDED - Required for broadcasting beacons
             Permission.locationWhenInUse,
           ].request();
         } else {
@@ -235,9 +77,7 @@ class PermissionService {
         if (permanentlyDenied.isNotEmpty) {
           print('🚫 Permanently denied permissions detected!');
           print('   User must go to Settings to enable:');
-          for (var p in permanentlyDenied) {
-            print('   - $p');
-          }
+          permanentlyDenied.forEach((p) => print('   - $p'));
         }
       }
 
@@ -255,6 +95,7 @@ class PermissionService {
     try {
       bool bluetoothScanGranted = false;
       bool bluetoothConnectGranted = false;
+      bool bluetoothAdvertiseGranted = false; // ✅ ADDED
       bool locationGranted = false;
 
       if (Platform.isAndroid) {
@@ -264,15 +105,18 @@ class PermissionService {
           // Android 12+
           bluetoothScanGranted = await Permission.bluetoothScan.isGranted;
           bluetoothConnectGranted = await Permission.bluetoothConnect.isGranted;
+          bluetoothAdvertiseGranted = await Permission.bluetoothAdvertise.isGranted; // ✅ ADDED
           locationGranted = await Permission.locationWhenInUse.isGranted;
 
           print('   Bluetooth Scan: ${bluetoothScanGranted ? "✅" : "❌"}');
           print('   Bluetooth Connect: ${bluetoothConnectGranted ? "✅" : "❌"}');
+          print('   Bluetooth Advertise: ${bluetoothAdvertiseGranted ? "✅" : "❌"}'); // ✅ ADDED
           print('   Location: ${locationGranted ? "✅" : "❌"}');
         } else {
           // Android 11 and below
           bluetoothScanGranted = await Permission.bluetooth.isGranted;
           bluetoothConnectGranted = true; // Not needed on older Android
+          bluetoothAdvertiseGranted = true; // Not needed on older Android
           locationGranted = await Permission.locationWhenInUse.isGranted;
 
           print('   Bluetooth: ${bluetoothScanGranted ? "✅" : "❌"}');
@@ -281,13 +125,17 @@ class PermissionService {
       } else if (Platform.isIOS) {
         bluetoothScanGranted = await Permission.bluetooth.isGranted;
         bluetoothConnectGranted = true; // Handled differently on iOS
+        bluetoothAdvertiseGranted = true; // Handled differently on iOS
         locationGranted = await Permission.locationWhenInUse.isGranted;
 
         print('   Bluetooth: ${bluetoothScanGranted ? "✅" : "❌"}');
         print('   Location: ${locationGranted ? "✅" : "❌"}');
       }
 
-      final allGranted = bluetoothScanGranted && bluetoothConnectGranted && locationGranted;
+      final allGranted = bluetoothScanGranted &&
+          bluetoothConnectGranted &&
+          bluetoothAdvertiseGranted && // ✅ ADDED
+          locationGranted;
       print(allGranted ? '✅ All permissions granted' : '❌ Missing permissions');
 
       return allGranted;
@@ -300,17 +148,17 @@ class PermissionService {
   /// Check if location services are enabled (different from permission!)
   Future<bool> isLocationServiceEnabled() async {
     try {
-      // Use geolocator to check if location service is enabled
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      
-      print('📍 Location Service Status: ${serviceEnabled ? "ENABLED" : "DISABLED"}');
+      final serviceStatus = await Permission.locationWhenInUse.serviceStatus;
+      final isEnabled = serviceStatus.isEnabled;
 
-      if (!serviceEnabled) {
+      print('📍 Location Service Status: ${isEnabled ? "ENABLED" : "DISABLED"}');
+
+      if (!isEnabled) {
         print('⚠️ Location service is DISABLED!');
         print('   User must enable Location in device settings');
       }
 
-      return serviceEnabled;
+      return isEnabled;
     } catch (e) {
       print('❌ Error checking location service: $e');
       return false;
@@ -320,63 +168,7 @@ class PermissionService {
   /// Open app settings so user can manually grant permissions
   Future<void> openSettings() async {
     print('⚙️ Opening app settings...');
-    try {
-      await openAppSettings();
-      print('✅ App settings opened');
-    } catch (e) {
-      print('❌ Error opening app settings: $e');
-    }
-  }
-
-  /// Open location settings directly
-  /// ✅ FIXED: Now uses Geolocator to open ACTUAL location settings, not app info
-  Future<void> openLocationSettings() async {
-    print('📍 Opening location settings...');
-    try {
-      if (Platform.isAndroid) {
-        // Use Geolocator to open Android location settings
-        final opened = await Geolocator.openLocationSettings();
-        print(opened ? '✅ Location settings opened' : '⚠️ Could not open location settings');
-      } else {
-        // On iOS, open app settings (can't open system location settings)
-        await openAppSettings();
-        print('✅ App settings opened (iOS)');
-      }
-    } catch (e) {
-      print('❌ Error opening location settings: $e');
-      // Fallback to app settings
-      print('⚠️ Falling back to app settings...');
-      await openSettings();
-    }
-  }
-
-  /// Check if any permission is permanently denied
-  /// This is useful to show "Open Settings" instead of "Request Permission"
-  Future<bool> hasPermissionsPermanentlyDenied() async {
-    try {
-      if (Platform.isAndroid) {
-        final androidInfo = await _getAndroidVersion();
-
-        if (androidInfo >= 31) {
-          final scanDenied = await Permission.bluetoothScan.isPermanentlyDenied;
-          final connectDenied = await Permission.bluetoothConnect.isPermanentlyDenied;
-          final locationDenied = await Permission.locationWhenInUse.isPermanentlyDenied;
-          return scanDenied || connectDenied || locationDenied;
-        } else {
-          final bluetoothDenied = await Permission.bluetooth.isPermanentlyDenied;
-          final locationDenied = await Permission.locationWhenInUse.isPermanentlyDenied;
-          return bluetoothDenied || locationDenied;
-        }
-      } else if (Platform.isIOS) {
-        final bluetoothDenied = await Permission.bluetooth.isPermanentlyDenied;
-        final locationDenied = await Permission.locationWhenInUse.isPermanentlyDenied;
-        return bluetoothDenied || locationDenied;
-      }
-      return false;
-    } catch (e) {
-      print('⚠️ Error checking permanently denied: $e');
-      return false;
-    }
+    await openAppSettings();
   }
 
   /// Get Android API level
@@ -404,19 +196,25 @@ class PermissionService {
     try {
       // Check individual permissions
       if (Platform.isAndroid) {
+        final androidInfo = await _getAndroidVersion();
         diagnostics['platform'] = 'Android';
-        diagnostics['androidVersion'] = await _getAndroidVersion();
-        diagnostics['bluetoothScan'] = await Permission.bluetoothScan.status;
-        diagnostics['bluetoothConnect'] = await Permission.bluetoothConnect.status;
+        diagnostics['androidVersion'] = androidInfo;
+
+        if (androidInfo >= 31) {
+          diagnostics['bluetoothScan'] = await Permission.bluetoothScan.status;
+          diagnostics['bluetoothConnect'] = await Permission.bluetoothConnect.status;
+          diagnostics['bluetoothAdvertise'] = await Permission.bluetoothAdvertise.status; // ✅ ADDED
+        } else {
+          diagnostics['bluetooth'] = await Permission.bluetooth.status;
+        }
+
         diagnostics['location'] = await Permission.locationWhenInUse.status;
-        diagnostics['locationService'] = await Geolocator.isLocationServiceEnabled();
-        diagnostics['bluetoothEnabled'] = await isBluetoothEnabled();
+        diagnostics['locationService'] = await Permission.locationWhenInUse.serviceStatus;
       } else if (Platform.isIOS) {
         diagnostics['platform'] = 'iOS';
         diagnostics['bluetooth'] = await Permission.bluetooth.status;
         diagnostics['location'] = await Permission.locationWhenInUse.status;
-        diagnostics['locationService'] = await Geolocator.isLocationServiceEnabled();
-        diagnostics['bluetoothEnabled'] = await isBluetoothEnabled();
+        diagnostics['locationService'] = await Permission.locationWhenInUse.serviceStatus;
       }
 
       print('📊 Diagnostics:');
